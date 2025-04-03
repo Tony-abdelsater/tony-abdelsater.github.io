@@ -89,6 +89,27 @@ const [playPressed, setPlayPressed] = createSignal(false)
 const [toolTipVisibility, setToolTipVisibility] = createSignal([])
 const [isBVHdefault, setIsBVHdefault] = createSignal(true)
 
+const [speedData2D, setSpeedData2D] = createSignal([])
+const [speedData3D, setSpeedData3D] = createSignal([])
+const [chartSpeed, setChartSpeed] = createSignal(null)
+const [showSpeedPlot, setShowSpeedPlot] = createSignal(true)
+
+// Motion analysis signals
+const [motionMetric, setMotionMetric] = createSignal('speed')
+const [accelerationDataX, setAccelerationDataX] = createSignal([])
+const [accelerationDataY, setAccelerationDataY] = createSignal([])
+const [accelerationDataZ, setAccelerationDataZ] = createSignal([])
+const [accelerationDataNorm, setAccelerationDataNorm] = createSignal([])
+
+// Add jerk data signals
+const [jerkDataX, setJerkDataX] = createSignal([])
+const [jerkDataY, setJerkDataY] = createSignal([])
+const [jerkDataZ, setJerkDataZ] = createSignal([])
+const [jerkDataNorm, setJerkDataNorm] = createSignal([])
+
+// Geometric descriptor state
+const [activeGeometricDescriptor, setActiveGeometricDescriptor] = createSignal('none')
+
 // const [isXPressed, setXPressed] = createSignal(true);
 // const [isYPressed, setYPressed] = createSignal(false);
 // const [isZPressed, setZPressed] = createSignal(false);
@@ -231,6 +252,39 @@ export {
 	setToolTipVisibility,
 	isBVHdefault,
 	setIsBVHdefault,
+	speedData2D,
+	setSpeedData2D,
+	speedData3D,
+	setSpeedData3D,
+	chartSpeed,
+	setChartSpeed,
+	showSpeedPlot,
+	setShowSpeedPlot,
+	motionMetric,
+	setMotionMetric,
+	accelerationDataX,
+	setAccelerationDataX,
+	accelerationDataY,
+	setAccelerationDataY,
+	accelerationDataZ,
+	setAccelerationDataZ,
+	accelerationDataNorm,
+	setAccelerationDataNorm,
+	
+	// Geometric descriptor exports
+	activeGeometricDescriptor,
+	setActiveGeometricDescriptor,
+	
+	// Jerk data exports
+	jerkDataX,
+	setJerkDataX,
+	jerkDataY, 
+	setJerkDataY,
+	jerkDataZ,
+	setJerkDataZ,
+	jerkDataNorm,
+	setJerkDataNorm
+	
 	// isXPressed,
 	// isYPressed,
 	// isZPressed,

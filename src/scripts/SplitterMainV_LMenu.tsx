@@ -2,6 +2,7 @@ import { Splitter } from "@ark-ui/solid"
 
 import { CollapsibleLoadData } from "./CollapsibleLoadData"
 import { CollapsibleVisControls } from "./CollapsibleVisControls"
+import { CollapsibleSpeed } from "./CollapsibleSpeed"
 import { ResizeEverything } from "./ResizeEverything"
 
 import "ag-grid-community/styles/ag-grid.css"
@@ -58,6 +59,7 @@ const SplitterMainV_LMenu = () => {
 				>
 					<CollapsibleLoadData />
 					<CollapsibleVisControls />
+					<CollapsibleSpeed />
 					<CollapsibleAnalysis />
 					<button
 						// onclick={exportBVHFunc}

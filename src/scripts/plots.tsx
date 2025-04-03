@@ -686,29 +686,6 @@ function percentageToPixels(percentage, parentElement) {
 // 	)
 // }
 
-// const updatePlot2D = (currentTime, axis = "x") => {
-// 	const myChart = chart2D()
-// 	if (!myChart) return
-
-// 	const currentPointIndex = Math.round(currentTime * 90)
-// 	let positions =
-// 		axis === "x"
-// 			? positionsX_2D()
-// 			: axis === "y"
-// 			? positionsY_2D()
-// 			: positionsZ_2D()
-
-// 	myChart.setOption({
-// 		series: [
-// 			{
-// 				name: ScatterTitle2D(),
-// 				data: [[currentPointIndex, positions[currentPointIndex]]],
-// 			},
-// 		],
-// 		animation: false,
-// 	})
-// }
-
 const createPlot2D = (currentTime, axis = "x") => {
 	const container = document.getElementById("plotPanel_2D")
 	if (!chart2D()) {
@@ -876,31 +853,38 @@ const createPlot2D = (currentTime, axis = "x") => {
 }
 
 const updatePlot2D = (currentTime, axis = "x") => {
-	// const myChart = chart2D()
-	// if (!myChart) return
-	// const currentPointIndex = Math.round(currentTime * 90)
-	// // Prepare updated scatter data for all viewers
-	// const updatedSeries = skeletonViewersSig().map((viewer, index) => {
-	// 	const positions =
-	// 		axis === "x"
-	// 			? positionsX_2D()[index]
-	// 			: axis === "y"
-	// 			? positionsY_2D()[index]
-	// 			: positionsZ_2D()[index]
-	// 	return {
-	// 		name: `${viewer.plotLabel || `Viewer ${index + 1}`} Point`,
-	// 		data: [[currentPointIndex, positions[currentPointIndex]]], // Update current point
-	// 	}
-	// })
-	// // Update only scatter series in the chart
-	// myChart.setOption({
-	// 	series: updatedSeries.map((scatter) => ({
-	// 		name: scatter.name,
-	// 		data: scatter.data,
-	// 		type: "scatter", // Ensure scatter type remains the same
-	// 	})),
-	// 	animation: false, // Disable animation for real-time updates
-	// })
+    const myChart = chart2D()
+    if (!myChart) return
+    const currentPointIndex = Math.round(currentTime * 90)
+    // Prepare updated scatter data for all viewers
+    const updatedSeries = skeletonViewersSig().map((viewer, index) => {
+        const positions =
+            axis === "x"
+                ? positionsX_2D()[index]
+                : axis === "y"
+                ? positionsY_2D()[index]
+                : positionsZ_2D()[index]
+        return {
+            name: `${viewer.plotLabel || `Viewer ${index + 1}`} Point`,
+            data: [[currentPointIndex, positions[currentPointIndex]]], // Update current point
+        }
+    })
+    // Update only scatter series in the chart
+    myChart.setOption({
+        series: updatedSeries.map((scatter) => ({
+            name: scatter.name,
+            data: scatter.data,
+            type: "scatter",
+            symbolSize: 15,
+            itemStyle: {
+                color: "red",
+                borderColor: "black",
+                borderWidth: 0,
+            },
+            animation: false,
+            z: 10
+        }))
+    })
 }
 
 function LineTitle3D() {
@@ -1173,34 +1157,39 @@ const createPlot3D = (currentTime) => {
 }
 
 const updatePlot3D = (currentTime) => {
-	// const myChart = chart3D()
-	// const currentPointIndex = Math.round(currentTime * 90)
-	// const xPositions = positionsZ_3D()
-	// const yPositions = positionsX_3D()
-	// const zPositions = positionsY_3D()
-	// myChart.setOption({
-	// 	series: [
-	// 		{
-	// 			type: "line3D",
-	// 			data: xPositions.map((x, i) => [
-	// 				x,
-	// 				yPositions[i],
-	// 				zPositions[i],
-	// 			]),
-	// 		},
-	// 		{
-	// 			// Assuming the scatter is the second series
-	// 			type: "scatter3D",
-	// 			data: [
-	// 				[
-	// 					xPositions[currentPointIndex],
-	// 					yPositions[currentPointIndex],
-	// 					zPositions[currentPointIndex],
-	// 				],
-	// 			],
-	// 		},
-	// 	],
-	// })
+    const myChart = chart3D()
+    if (!myChart) return
+    const currentPointIndex = Math.round(currentTime * 90)
+
+    // Prepare updated scatter data for all viewers
+    const updatedSeries = skeletonViewersSig().map((viewer, index) => {
+        const xPositions = positionsZ_3D()[index]
+        const yPositions = positionsX_3D()[index]
+        const zPositions = positionsY_3D()[index]
+        
+        return {
+            name: `${viewer.plotLabel || `Viewer ${index + 1}`} Point`,
+            data: [[
+                xPositions[currentPointIndex],
+                yPositions[currentPointIndex],
+                zPositions[currentPointIndex]
+            ]]
+        }
+    })
+
+    // Update only scatter series in the chart
+    myChart.setOption({
+        series: updatedSeries.map((scatter) => ({
+            name: scatter.name,
+            type: "scatter3D",
+            data: scatter.data,
+            symbolSize: 8,
+            itemStyle: {
+                color: "red"
+            }
+        })),
+        animation: false
+    })
 }
 
 const createPlot2D_Predict = async () => {

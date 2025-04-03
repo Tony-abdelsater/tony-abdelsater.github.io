@@ -23,8 +23,14 @@ function CollapsibleAnalysis() {
 			</Collapsible.Trigger>
 			<Collapsible.Content class="collapsible__content">
 				<div class="collapsible__content-text">
-					<div style="display:flex; margin-top:10px; margin-bottom:10px;">
-						{/* <CheckboxDexAnalysis /> */}
+					<div style="display:flex; flex-direction:column; margin-top:10px; margin-bottom:10px;">
+						{/* Motion Analysis section */}
+						<div>
+							
+							
+							{/* Metric selection - already exists in another component */}
+							{/* Geometric Descriptors have been moved to CollapsibleSpeed component */}
+						</div>
 					</div>
 				</div>
 			</Collapsible.Content>
