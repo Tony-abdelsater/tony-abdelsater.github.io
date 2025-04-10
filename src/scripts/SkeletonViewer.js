@@ -67,8 +67,21 @@ class SkeletonViewer {
 		this.boundingBox = null
 		this.boundingSphere = null
 		this.boundingEllipsoid = null
+		this.centerOfMass = null
+		this.balanceIndicator = null     // Visual indicator of balance state
+		this.projectedCoM = null         // Projected CoM on ground
+		this.supportPolygon = null       // Visual representation of support polygon
+		this.isBalanced = false          // Boolean value for balance state
 		this.descriptorsGroup = new THREE.Group()
-		this.activeDescriptor = 'none' // 'none', 'box', 'sphere', 'ellipsoid'
+		this.activeDescriptor = 'none' // 'none', 'box', 'sphere', 'ellipsoid', 'com', 'balance', 'distance'
+		
+		// Distance covered tracking
+		this.distanceTracker = null      // Group to hold distance visualization elements
+		this.pathPoints = []             // Array to store positions for distance tracking
+		this.totalDistance = 0           // Total distance covered
+		this.distanceText = null         // Text display for distance covered
+		this.lastTrackedPosition = null  // Last tracked position for incremental calculations
+		this.distanceTrackingActive = false // Flag to control tracking
 	}
 
 	loadSkeleton(bvhFile) {
@@ -234,36 +247,7 @@ class SkeletonViewer {
 			return /end$/.test(str)
 		}
 
-		// await this.globalResult.skeleton.bones.forEach((bone, index, array) => {
-		// 	const depth = calculateDepth(bone) // Calculate the depth based on parent chain
-		// 	if (bone.name === "ENDSITE" && index > 0) {
-		// 		const previousBoneName = array[index - 1].name
-		// 		bone.name = `${previousBoneName}_end`
-		// 	}
-
-		// 	if (
-		// 		bone.name === "LeftFootToe_end" ||
-		// 		bone.name === "RightFootToe_end"
-		// 	) {
-		// 		geometry = new THREE.SphereGeometry(0, 32, 32)
-		// 	} else if (depth >= 9) {
-		// 		geometry = new THREE.SphereGeometry(1.2, 32, 32)
-		// 	} else {
-		// 		geometry = new THREE.SphereGeometry(3, 32, 32)
-		// 	}
-
-		// 	const material = new THREE.MeshBasicMaterial({ color: 0x145e9f })
-		// 	const sphere = new THREE.Mesh(geometry, material)
-
-		// 	sphere.name = bone.name
-		// 	bone.getWorldPosition(sphere.position)
-
-		// 	this.sphereMeshes.add(sphere)
-		// 	this.boneNames.push(bone.name)
-		// 	if (!bone.name.endsWith("end")) {
-		// 		this.boneHierarchy.push({ name: bone.name, depth: depth }) // Add the bone and its depth to the hierarchy list
-		// 	}
-		// })
+		
 
 		// Περιμένουμε να ολοκληρωθούν όλες οι προσθήκες σφαιρών
 		await Promise.all(
@@ -1214,63 +1198,11 @@ class SkeletonViewer {
 		if (!this.sphereMeshes.children || this.sphereMeshes.children.length === 0) {
 			console.warn("No skeleton joints found for creating bounding sphere");
 			return null;
-		}
-	
-		// Get all joint positions
-		const positions = [];
-		this.sphereMeshes.children.forEach(mesh => {
-			// Skip invisible or extremely small meshes
-			if (!mesh.visible || mesh.geometry.parameters.radius < 0.1) {
-				return;
 			}
-			
-			const worldPosition = new THREE.Vector3();
-			mesh.getWorldPosition(worldPosition);
-			// Convert world position to local position relative to descriptorsGroup's parent
-			this.descriptorsGroup.parent.worldToLocal(worldPosition);
-			positions.push(worldPosition);
-		});
 		
-		// Check if we have enough positions to work with
-		if (positions.length === 0) {
-			console.warn("No valid joint positions for bounding sphere");
-			return null;
-		}
-		
-		let center;
-		if (centerOnRoot) {
-			// Center on Root/Hips joint
-			const rootIndex = this.jointIndex['Hips'] || 0;
-			const worldPosition = new THREE.Vector3();
-			this.sphereMeshes.children[rootIndex].getWorldPosition(worldPosition);
-			// Convert to local space of descriptorsGroup's parent
-			this.descriptorsGroup.parent.worldToLocal(worldPosition);
-			center = worldPosition;
-		} else {
-			// Calculate centroid
-			center = new THREE.Vector3();
-			positions.forEach(pos => {
-				center.add(pos);
-			});
-			center.divideScalar(positions.length);
-		}
-		
-		// Calculate radius as maximum distance from center to any joint
-		// Use squared distance for efficiency during calculation
-		let maxRadiusSq = 0;
-		positions.forEach(pos => {
-			const distSq = center.distanceToSquared(pos);
-			if (distSq > maxRadiusSq) {
-				maxRadiusSq = distSq;
-			}
-		});
-		const radius = Math.sqrt(maxRadiusSq);
-		
-		// Add a small padding to ensure all joints are inside
-		const paddedRadius = radius * 1.05;
-		
-		// Create sphere wireframe
-		const geometry = new THREE.SphereGeometry(1, 32, 16);
+		// Create sphere geometry and material for the bounding sphere 
+		// - using simple, large triangles for better performance
+		const geometry = new THREE.SphereGeometry(1, 16, 12);
 		const material = new THREE.MeshBasicMaterial({ 
 			color: 0x0000ff, 
 			wireframe: true,
@@ -1278,12 +1210,59 @@ class SkeletonViewer {
 			opacity: 0.7 
 		});
 		
+		// Create the sphere mesh once and add it to the scene
 		this.boundingSphere = new THREE.Mesh(geometry, material);
-		this.boundingSphere.position.copy(center);
-		this.boundingSphere.scale.set(paddedRadius, paddedRadius, paddedRadius);
 		this.descriptorsGroup.add(this.boundingSphere);
 		
-		console.log("Bounding Sphere - Center:", center, "Radius:", paddedRadius.toFixed(2));
+		// Calculate and apply the initial sphere properties
+		this.updateBoundingSphere(centerOnRoot);
+		
+		return this.boundingSphere;
+	}
+	
+	updateBoundingSphere(centerOnRoot = true) {
+		if (!this.boundingSphere) return null;
+		
+		// Get all joint positions
+		const positions = [];
+		this.sphereMeshes.children.forEach(mesh => {
+			// Skip invisible or extremely small joints
+			if (!mesh.visible || mesh.geometry.parameters.radius < 0.1) {
+				return;
+			}
+			
+			const worldPosition = new THREE.Vector3();
+			mesh.getWorldPosition(worldPosition);
+			this.descriptorsGroup.parent.worldToLocal(worldPosition);
+			positions.push(worldPosition);
+		});
+		
+		if (positions.length < 2) {
+			console.warn("Not enough valid joint positions for bounding sphere");
+			return null;
+		}
+		
+		// Simple algorithm to calculate the bounding sphere:
+		// 1. First compute the center as the average of all joint positions
+		const center = new THREE.Vector3();
+		positions.forEach(pos => {
+			center.add(pos);
+		});
+		center.divideScalar(positions.length);
+		
+		// 2. Find the joint farthest from this center to determine radius
+		let maxDistSq = 0;
+		positions.forEach(pos => {
+			const distSq = center.distanceToSquared(pos);
+			maxDistSq = Math.max(maxDistSq, distSq);
+		});
+		
+		// Apply a small padding to ensure all joints fit (5%)
+		const radius = Math.sqrt(maxDistSq) * 1.05;
+		
+		// Update the bounding sphere's position and scale
+		this.boundingSphere.position.copy(center);
+		this.boundingSphere.scale.set(radius, radius, radius);
 		
 		return this.boundingSphere;
 	}
@@ -1293,6 +1272,14 @@ class SkeletonViewer {
 		if (this.boundingEllipsoid) {
 			this.descriptorsGroup.remove(this.boundingEllipsoid);
 			this.boundingEllipsoid = null;
+		}
+		
+		// Clean up any existing axis lines
+		if (this.ellipsoidAxes) {
+			this.ellipsoidAxes.forEach(axis => {
+				this.descriptorsGroup.remove(axis);
+			});
+			this.ellipsoidAxes = null;
 		}
 		
 		if (!this.sphereMeshes.children || this.sphereMeshes.children.length === 0) {
@@ -1316,57 +1303,76 @@ class SkeletonViewer {
 		});
 		
 		// Check if we have enough positions
-		if (positions.length === 0) {
-			console.warn("No valid joint positions for bounding ellipsoid");
+		if (positions.length < 3) {
+			console.warn("Not enough valid joint positions for bounding ellipsoid");
 			return null;
 		}
 		
-		// Find min and max points to determine principal axes
-		const min = new THREE.Vector3(Infinity, Infinity, Infinity);
-		const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-		
+		// Find the centroid of all points
+		const centroid = new THREE.Vector3();
 		positions.forEach(pos => {
-			min.x = Math.min(min.x, pos.x);
-			min.y = Math.min(min.y, pos.y);
-			min.z = Math.min(min.z, pos.z);
-			max.x = Math.max(max.x, pos.x);
-			max.y = Math.max(max.y, pos.y);
-			max.z = Math.max(max.z, pos.z);
+			centroid.add(pos);
 		});
+		centroid.divideScalar(positions.length);
 		
-		// Calculate center
-		const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+		// Step 1: Calculate the covariance matrix
+		const covarianceMatrix = [
+			[0, 0, 0],
+			[0, 0, 0],
+			[0, 0, 0]
+		];
 		
-		// Calculate variance along each axis
-		const variance = new THREE.Vector3(0, 0, 0);
 		positions.forEach(pos => {
-			const dx = pos.x - center.x;
-			const dy = pos.y - center.y;
-			const dz = pos.z - center.z;
+			// Mean-center the points
+			const dx = pos.x - centroid.x;
+			const dy = pos.y - centroid.y;
+			const dz = pos.z - centroid.z;
 			
-			variance.x += dx * dx;
-			variance.y += dy * dy;
-			variance.z += dz * dz;
+			// Build covariance matrix
+			covarianceMatrix[0][0] += dx * dx;
+			covarianceMatrix[1][1] += dy * dy;
+			covarianceMatrix[2][2] += dz * dz;
+			
+			// Off-diagonal elements (not used for simplified approach)
+			covarianceMatrix[0][1] += dx * dy;
+			covarianceMatrix[0][2] += dx * dz;
+			covarianceMatrix[1][0] += dy * dx;
+			covarianceMatrix[1][2] += dy * dz;
+			covarianceMatrix[2][0] += dz * dx;
+			covarianceMatrix[2][1] += dz * dy;
 		});
-		variance.divideScalar(positions.length);
 		
-		// Calculate principal axes for the ellipsoid (standard deviations)
-		// Multiply by a factor to ensure the ellipsoid fully contains the skeleton
-		const scaleFactor = 2.5; // Increased to ensure skeleton fits inside
-		const radii = new THREE.Vector3(
-			Math.sqrt(variance.x) * scaleFactor,
-			Math.sqrt(variance.y) * scaleFactor,
-			Math.sqrt(variance.z) * scaleFactor
-		);
+		// Normalize the covariance matrix
+		for (let i = 0; i < 3; i++) {
+			for (let j = 0; j < 3; j++) {
+				covarianceMatrix[i][j] /= positions.length;
+			}
+		}
 		
-		// Ensure minimum radius in any direction to avoid flat ellipsoids
-		const minRadius = Math.max(radii.x, radii.y, radii.z) * 0.25;
-		radii.x = Math.max(radii.x, minRadius);
-		radii.y = Math.max(radii.y, minRadius);
-		radii.z = Math.max(radii.z, minRadius);
+		// Step 2: Using variances directly to calculate radii (simplified PCA approach)
+		const variances = [
+			covarianceMatrix[0][0], // Variance in X
+			covarianceMatrix[1][1], // Variance in Y
+			covarianceMatrix[2][2]  // Variance in Z
+		];
+
+		// Calculate principal axes lengths (using standard deviations)
+		// Using a smaller adaptive scale factor for tighter fit
+		const adaptiveScaleFactor = 1.5; // Reduced from 2.0
+		const radii = [
+			Math.sqrt(variances[0]) * adaptiveScaleFactor,
+			Math.sqrt(variances[1]) * adaptiveScaleFactor,
+			Math.sqrt(variances[2]) * adaptiveScaleFactor
+		];
 		
-		// Create ellipsoid using a scaled sphere
-		const geometry = new THREE.SphereGeometry(1, 32, 16);
+		// Find minimum radius to prevent flat ellipsoids (at least 10% of max)
+		const minRadius = Math.max(...radii) * 0.1; // Reduced from 0.15
+		radii[0] = Math.max(radii[0], minRadius);
+		radii[1] = Math.max(radii[1], minRadius);
+		radii[2] = Math.max(radii[2], minRadius);
+		
+		// Step 3: Create the ellipsoid using a scaled sphere
+		const geometry = new THREE.SphereGeometry(1, 24, 16);
 		const material = new THREE.MeshBasicMaterial({ 
 			color: 0x00ff00, 
 			wireframe: true,
@@ -1375,13 +1381,69 @@ class SkeletonViewer {
 		});
 		
 		this.boundingEllipsoid = new THREE.Mesh(geometry, material);
-		this.boundingEllipsoid.position.copy(center);
-		this.boundingEllipsoid.scale.set(radii.x, radii.y, radii.z);
+		this.boundingEllipsoid.position.copy(centroid);
+		this.boundingEllipsoid.scale.set(radii[0], radii[1], radii[2]);
+		
+		// Validate the ellipsoid contains all points
+		let needsExpansion = false;
+		let maxDistanceRatio = 0;
+		
+		// Count points outside the ellipsoid
+		let pointsOutsideCount = 0;
+		
+		// Check if any points are outside the ellipsoid
+		positions.forEach(pos => {
+			// Convert point to ellipsoid's local space
+			const localPoint = pos.clone().sub(centroid);
+			
+			// Calculate the squared distance ratio
+			// (x/a)² + (y/b)² + (z/c)² <= 1 for points inside ellipsoid
+			const ratio = Math.pow(localPoint.x / radii[0], 2) + 
+						  Math.pow(localPoint.y / radii[1], 2) + 
+						  Math.pow(localPoint.z / radii[2], 2);
+			
+			if (ratio > 1) {
+				needsExpansion = true;
+				pointsOutsideCount++;
+				maxDistanceRatio = Math.max(maxDistanceRatio, ratio);
+			}
+		});
+		
+		// If needed, expand the ellipsoid just enough to include all points
+		// But be more conservative with the expansion
+		if (needsExpansion) {
+			// Use the square root of the ratio to get the proper scaling factor
+			// Add just 2% padding instead of 5%
+			const expansionFactor = Math.sqrt(maxDistanceRatio) * 1.02;
+			
+			// Apply the expansion
+			radii[0] *= expansionFactor;
+			radii[1] *= expansionFactor;
+			radii[2] *= expansionFactor;
+			this.boundingEllipsoid.scale.set(radii[0], radii[1], radii[2]);
+			
+			console.log(`Expanded ellipsoid by factor ${expansionFactor.toFixed(3)} to include ${pointsOutsideCount} points`);
+		}
+		
+		// Add the ellipsoid to the scene
 		this.descriptorsGroup.add(this.boundingEllipsoid);
 		
-		console.log("Bounding Ellipsoid - Center:", center, "Radii:", radii);
-		
 		return this.boundingEllipsoid;
+	}
+	
+	// Override the updateGeometricDescriptors function to use our new approach
+	updateGeometricDescriptors() {
+		// Only update if we're actually displaying these descriptors
+		if (this.activeDescriptor === 'box' && this.boundingBox && this.boundingBox.visible) {
+			this.createBoundingBox();
+		} 
+		else if (this.activeDescriptor === 'sphere' && this.boundingSphere) {
+			// Just update the sphere properties, don't recreate it
+			this.updateBoundingSphere(true);
+		}
+		else if (this.activeDescriptor === 'ellipsoid' && this.boundingEllipsoid && this.boundingEllipsoid.visible) {
+			this.createBoundingEllipsoid();
+		}
 	}
 
 	alignDescriptorsWithSkeleton() {
@@ -1408,7 +1470,7 @@ class SkeletonViewer {
 		}
 	}
 	
-	// Override setActiveDescriptor to include alignment
+	// Override setActiveDescriptor to include alignment and center of mass
 	setActiveDescriptor(type) {
 		console.log(`Setting active descriptor to: ${type}`);
 		
@@ -1416,6 +1478,18 @@ class SkeletonViewer {
 		if (this.boundingBox) this.boundingBox.visible = false;
 		if (this.boundingSphere) this.boundingSphere.visible = false;
 		if (this.boundingEllipsoid) this.boundingEllipsoid.visible = false;
+		if (this.centerOfMass) this.centerOfMass.visible = false;
+		if (this.comConnections) {
+			this.comConnections.forEach(line => {
+				line.visible = false;
+			});
+		}
+		
+		 // Stop distance tracking if it was active
+		this.distanceTrackingActive = false;
+		if (this.distanceTracker) {
+			this.distanceTracker.visible = false;
+		}
 		
 		// Clean up old descriptors of a different type to avoid stacking
 		if (this.activeDescriptor !== type) {
@@ -1436,6 +1510,31 @@ class SkeletonViewer {
 		else if (type === 'ellipsoid') {
 			if (!this.boundingEllipsoid) this.createBoundingEllipsoid();
 			if (this.boundingEllipsoid) this.boundingEllipsoid.visible = true;
+			}
+		else if (type === 'com') {
+			if (!this.centerOfMass) this.createCenterOfMass();
+			if (this.centerOfMass) {
+				this.centerOfMass.visible = true;
+				// Show connections too
+				if (this.comConnections) {
+					this.comConnections.forEach(line => {
+						line.visible = true;
+					});
+				}
+			}
+			}
+		else if (type === 'balance') {
+			this.createBalance();
+		}
+		else if (type === 'distance') {
+			// Initialize or reset distance tracking
+			if (!this.distanceTracker) {
+				this.initDistanceTracking();
+			} else {
+				this.resetDistanceTracking();
+			}
+			this.distanceTrackingActive = true;
+			this.distanceTracker.visible = true;
 		}
 		
 		// Make sure descriptors group is properly added to the scene
@@ -1458,23 +1557,24 @@ class SkeletonViewer {
 			// Only update geometric descriptors when active
 			if (this.activeDescriptor !== 'none') {
 				this.updateGeometricDescriptors();
+				
+				// Update center of mass if it's active
+				if (this.activeDescriptor === 'com') {
+					this.updateCenterOfMass();
+				}
+				
+				// Update balance visualization if it's active
+				if (this.activeDescriptor === 'balance') {
+					this.updateBalance();
+				}
+				
+				// Update distance tracking if it's active
+				if (this.activeDescriptor === 'distance' && this.distanceTrackingActive) {
+					this.updateDistanceTracking();
+				}
 			}
 		} catch (error) {
 			console.error("Failed to update skeleton:", error);
-		}
-	}
-	
-	// Improved updateGeometricDescriptors function
-	updateGeometricDescriptors() {
-		// Only recreate if we're actually displaying these descriptors
-		if (this.activeDescriptor === 'box' && this.boundingBox && this.boundingBox.visible) {
-			this.createBoundingBox();
-		} 
-		else if (this.activeDescriptor === 'sphere' && this.boundingSphere && this.boundingSphere.visible) {
-			this.createBoundingSphere(true); // Always center on root when updating
-		}
-		else if (this.activeDescriptor === 'ellipsoid' && this.boundingEllipsoid && this.boundingEllipsoid.visible) {
-			this.createBoundingEllipsoid();
 		}
 	}
 
@@ -1514,6 +1614,913 @@ class SkeletonViewer {
 
 		if (this.mixer) {
 			this.mixer.timeScale = 0
+		}
+	}
+
+	createCenterOfMass() {
+		// Remove existing center of mass if it exists
+		if (this.centerOfMass) {
+			this.descriptorsGroup.remove(this.centerOfMass);
+			this.centerOfMass = null;
+		}
+		
+		if (!this.sphereMeshes.children || this.sphereMeshes.children.length === 0) {
+			console.warn("No skeleton joints found for creating center of mass");
+			return null;
+		}
+		
+		// Define joint weights based on Dempster's anthropometric values
+		// Values inspired by Dempster as mentioned in the requirements:
+		const jointWeights = {
+			'Hips': 0.497,      // root (497%)
+			'LeftShoulder': 0.28,  // each shoulder (28%)
+			'RightShoulder': 0.28,
+			'LeftArm': 0.16,    // each elbow (16%)
+			'RightArm': 0.16,
+			'LeftHand': 0.06,   // each hand (06%)
+			'RightHand': 0.06,
+			'LeftUpLeg': 0.10,  // each thigh (10%)
+			'RightUpLeg': 0.10,
+			'LeftLeg': 0.465,   // each knee (465%)
+			'RightLeg': 0.465,
+			'LeftFoot': 0.145,  // each foot (145%)
+			'RightFoot': 0.145,
+			'Head': 0.081       // head (81%)
+		};
+		
+		// Use alternative names for joints if needed
+		const alternativeNames = {
+			'LeftForeArm': 'LeftArm',
+			'RightForeArm': 'RightArm',
+			'LeftForeHand': 'LeftHand',
+			'RightForeHand': 'RightHand',
+			'LeftForeArm_end': 'LeftHand',
+			'RightForeArm_end': 'RightHand',
+			'LeftLeg_end': 'LeftFoot',
+			'RightLeg_end': 'RightFoot'
+		};
+		
+		// Calculate center of mass position using weighted average
+		const comPosition = new THREE.Vector3(0, 0, 0);
+		let totalWeight = 0;
+		
+		// For each bone in the skeleton
+		this.sphereMeshes.children.forEach(mesh => {
+			const boneName = mesh.name;
+			let weight = 0;
+			
+			// Get weight directly or check for alternative names
+			if (jointWeights[boneName] !== undefined) {
+				weight = jointWeights[boneName];
+			} else if (alternativeNames[boneName] && jointWeights[alternativeNames[boneName]] !== undefined) {
+				weight = jointWeights[alternativeNames[boneName]];
+			}
+			
+			// If we found a weight for this joint
+			if (weight > 0) {
+				// Get the position of the joint
+				const worldPosition = new THREE.Vector3();
+				mesh.getWorldPosition(worldPosition);
+				this.descriptorsGroup.parent.worldToLocal(worldPosition);
+				
+				// Add weighted contribution to the center of mass
+				comPosition.x += worldPosition.x * weight;
+				comPosition.y += worldPosition.y * weight;
+				comPosition.z += worldPosition.z * weight;
+				totalWeight += weight;
+			}
+		});
+		
+		// Normalize by the total weight (equation 13 from the requirements)
+		if (totalWeight > 0) {
+			comPosition.divideScalar(totalWeight);
+		} else {
+			console.warn("No valid weighted joints found for Center of Mass calculation");
+			return null;
+		}
+		
+		// Create visual representation of center of mass
+		const sphereGeometry = new THREE.SphereGeometry(3, 16, 16);
+		const sphereMaterial = new THREE.MeshBasicMaterial({
+			color: 0xff8800,
+			transparent: true,
+			opacity: 0.7
+		});
+		
+		this.centerOfMass = new THREE.Mesh(sphereGeometry, sphereMaterial);
+		this.centerOfMass.position.copy(comPosition);
+		this.descriptorsGroup.add(this.centerOfMass);
+		
+		// Add radial lines from CoM to key joints for visualization
+		this.createCoMConnections(comPosition);
+		
+		console.log("Center of Mass calculated at:", comPosition);
+		return this.centerOfMass;
+	}
+	
+	// Create visual connections from CoM to key joints
+	createCoMConnections(comPosition) {
+		// Clean up existing connections if present
+		if (this.comConnections) {
+			this.comConnections.forEach(line => {
+				this.descriptorsGroup.remove(line);
+			});
+		}
+		
+		this.comConnections = [];
+		
+		// Key joints to connect to CoM (can be adjusted)
+		const keyJointNames = ['Hips', 'Head', 'LeftHand', 'RightHand', 'LeftFoot', 'RightFoot'];
+		
+		// For each key joint, create a line to CoM
+		keyJointNames.forEach(jointName => {
+			// Find joint by name or alternative name
+			const joint = this.sphereMeshes.children.find(mesh => 
+				mesh.name === jointName || 
+				mesh.name === jointName + '_end' ||
+				(jointName === 'LeftHand' && mesh.name === 'LeftForeArm_end') ||
+				(jointName === 'RightHand' && mesh.name === 'RightForeArm_end') ||
+				(jointName === 'LeftFoot' && mesh.name === 'LeftLeg_end') ||
+				(jointName === 'RightFoot' && mesh.name === 'RightLeg_end')
+			);
+			
+			if (joint) {
+				// Get joint world position
+				const jointPos = new THREE.Vector3();
+				joint.getWorldPosition(jointPos);
+				this.descriptorsGroup.parent.worldToLocal(jointPos);
+				
+				// Create a line geometry
+				const points = [comPosition, jointPos];
+				const geometry = new THREE.BufferGeometry().setFromPoints(points);
+				const material = new THREE.LineBasicMaterial({ 
+					color: 0xff8800,
+					transparent: true,
+					opacity: 0.4
+				});
+				
+				const line = new THREE.Line(geometry, material);
+				this.descriptorsGroup.add(line);
+				this.comConnections.push(line);
+			}
+		});
+	}
+	
+	updateCenterOfMass() {
+		if (this.activeDescriptor === 'com' && this.centerOfMass) {
+			this.createCenterOfMass(); // Recalculate and recreate
+		}
+	}
+
+	createBalance() {
+		// Clean up previous balance visualization elements
+		if (this.balanceIndicator) {
+			this.descriptorsGroup.remove(this.balanceIndicator);
+			this.balanceIndicator = null;
+		}
+		if (this.supportPolygon) {
+			this.descriptorsGroup.remove(this.supportPolygon);
+			this.supportPolygon = null;
+		}
+		if (this.projectedCoM) {
+			this.descriptorsGroup.remove(this.projectedCoM);
+			this.projectedCoM = null;
+		}
+		
+		// First calculate the center of mass - we need this for balance calculation
+		const comPosition = this.calculateCoMPosition();
+		if (!comPosition) {
+			console.warn("Unable to calculate Center of Mass for balance determination");
+			return null;
+		}
+		
+		// Create the ground plane for visual reference (slightly below lowest foot)
+		const groundY = this.findGroundLevel();
+		
+		// Create the support polygon based on the current bounding shape
+		let supportPoints = this.createSupportPolygon(groundY);
+		if (!supportPoints || supportPoints.length < 3) {
+			console.warn("Unable to create valid support polygon for balance determination");
+			return null;
+		}
+		
+		// Project the center of mass onto the ground plane
+		const projectedCoM = new THREE.Vector3(comPosition.x, groundY, comPosition.z);
+		
+		// Check if the projected CoM is inside the support polygon
+		this.isBalanced = this.pointInSupportPolygon(projectedCoM, supportPoints);
+		
+		// Create visual indicators
+		this.createBalanceVisualization(comPosition, projectedCoM, supportPoints, groundY);
+		
+		return this.balanceIndicator;
+	}
+
+	// Calculate Center of Mass position (without creating visual elements)
+	calculateCoMPosition() {
+		if (!this.sphereMeshes.children || this.sphereMeshes.children.length === 0) {
+			return null;
+		}
+		
+		// Define joint weights based on Dempster's anthropometric values
+		const jointWeights = {
+			'Hips': 0.497,      // root (497%)
+			'LeftShoulder': 0.28,  // each shoulder (28%)
+			'RightShoulder': 0.28,
+			'LeftArm': 0.16,    // each elbow (16%)
+			'RightArm': 0.16,
+			'LeftHand': 0.06,   // each hand (06%)
+			'RightHand': 0.06,
+			'LeftUpLeg': 0.10,  // each thigh (10%)
+			'RightUpLeg': 0.10,
+			'LeftLeg': 0.465,   // each knee (465%)
+			'RightLeg': 0.465,
+			'LeftFoot': 0.145,  // each foot (145%)
+			'RightFoot': 0.145,
+			'Head': 0.081       // head (81%)
+		};
+		
+		// Use alternative names for joints if needed
+		const alternativeNames = {
+			'LeftForeArm': 'LeftArm',
+			'RightForeArm': 'RightArm',
+			'LeftForeHand': 'LeftHand',
+			'RightForeHand': 'RightHand',
+			'LeftForeArm_end': 'LeftHand',
+			'RightForeArm_end': 'RightHand',
+			'LeftLeg_end': 'LeftFoot',
+			'RightLeg_end': 'RightFoot'
+		};
+		
+		// Calculate center of mass position using weighted average
+		const comPosition = new THREE.Vector3(0, 0, 0);
+		let totalWeight = 0;
+		
+		// For each bone in the skeleton
+		this.sphereMeshes.children.forEach(mesh => {
+			const boneName = mesh.name;
+			let weight = 0;
+			
+			// Get weight directly or check for alternative names
+			if (jointWeights[boneName] !== undefined) {
+				weight = jointWeights[boneName];
+			} else if (alternativeNames[boneName] && jointWeights[alternativeNames[boneName]] !== undefined) {
+				weight = jointWeights[alternativeNames[boneName]];
+			}
+			
+			// If we found a weight for this joint
+			if (weight > 0) {
+				// Get the position of the joint
+				const worldPosition = new THREE.Vector3();
+				mesh.getWorldPosition(worldPosition);
+				this.descriptorsGroup.parent.worldToLocal(worldPosition);
+				
+				// Add weighted contribution to the center of mass
+				comPosition.x += worldPosition.x * weight;
+				comPosition.y += worldPosition.y * weight;
+				comPosition.z += worldPosition.z * weight;
+				totalWeight += weight;
+			}
+		});
+		
+		// Normalize by the total weight (equation 13 from the requirements)
+		if (totalWeight > 0) {
+			comPosition.divideScalar(totalWeight);
+			return comPosition;
+		} else {
+			return null;
+		}
+	}
+	
+	// Find the Y coordinate of the ground plane based on lowest foot position
+	findGroundLevel() {
+		let lowestY = Infinity;
+		
+		// Look for foot joints
+		const footJointNames = ['LeftFoot', 'RightFoot', 'LeftLeg_end', 'RightLeg_end'];
+		
+		footJointNames.forEach(footName => {
+			const footJoint = this.sphereMeshes.children.find(mesh => 
+				mesh.name === footName || mesh.name.includes(footName));
+				
+			if (footJoint) {
+				const worldPos = new THREE.Vector3();
+				footJoint.getWorldPosition(worldPos);
+				this.descriptorsGroup.parent.worldToLocal(worldPos);
+				lowestY = Math.min(lowestY, worldPos.y);
+			}
+		});
+		
+		// If no foot joint was found, use the lowest joint as fallback
+		if (lowestY === Infinity) {
+			this.sphereMeshes.children.forEach(mesh => {
+				const worldPos = new THREE.Vector3();
+				mesh.getWorldPosition(worldPos);
+				this.descriptorsGroup.parent.worldToLocal(worldPos);
+				lowestY = Math.min(lowestY, worldPos.y);
+			});
+		}
+		
+		// Add small offset below the lowest point for the ground plane
+		return lowestY - 2; 
+	}
+	
+	// Create support polygon based on the active bounding shape
+	createSupportPolygon(groundY) {
+		// Get the active bounding shape or create a new one if needed
+		let boundingShape = null;
+		let shapeType = '';
+		
+		// We use the current active bounding shape or create a new one temporarily
+		if (this.activeDescriptor === 'balance') {
+			// Choose which bounding shape to use for the support polygon
+			if (this.boundingBox && this.boundingBox.visible) {
+				boundingShape = this.boundingBox;
+				shapeType = 'box';
+			} else if (this.boundingSphere && this.boundingSphere.visible) {
+				boundingShape = this.boundingSphere;
+				shapeType = 'sphere';
+			} else if (this.boundingEllipsoid && this.boundingEllipsoid.visible) {
+				boundingShape = this.boundingEllipsoid;
+				shapeType = 'ellipsoid';
+			} else {
+				// Default to creating a bounding box if no shape is active
+				const tempBox = this.createBoundingBox();
+				boundingShape = tempBox;
+				shapeType = 'box';
+				tempBox.visible = false; // Hide the temporary box
+			}
+		} else {
+			// If balance is not the active descriptor, create a temporary bounding box
+			const tempBox = this.createBoundingBox();
+			boundingShape = tempBox;
+			shapeType = 'box';
+			tempBox.visible = false; // Hide the temporary box
+		}
+		
+		if (!boundingShape) {
+			return null;
+		}
+		
+		// Get the projected points for the support polygon based on the bounding shape type
+		let supportPoints = [];
+		
+		if (shapeType === 'box') {
+			// For box: get the 4 bottom corners
+			const box = boundingShape;
+			const size = new THREE.Vector3();
+			box.geometry.computeBoundingBox();
+			box.geometry.boundingBox.getSize(size);
+			size.multiply(box.scale);
+			
+			const halfSizeX = size.x / 2;
+			const halfSizeZ = size.z / 2;
+			
+			// Create the 4 corners of the support polygon (projected box)
+			supportPoints = [
+				new THREE.Vector3(box.position.x - halfSizeX, groundY, box.position.z - halfSizeZ),
+				new THREE.Vector3(box.position.x + halfSizeX, groundY, box.position.z - halfSizeZ),
+				new THREE.Vector3(box.position.x + halfSizeX, groundY, box.position.z + halfSizeZ),
+				new THREE.Vector3(box.position.x - halfSizeX, groundY, box.position.z + halfSizeZ)
+			];
+		} 
+		else if (shapeType === 'sphere') {
+			// For sphere: get a circle on the ground plane
+			const sphere = boundingShape;
+			const radius = sphere.scale.x; // All scales should be the same for a sphere
+			
+			// Create a circle of points for the support polygon
+			const segments = 12;
+			for (let i = 0; i < segments; i++) {
+				const angle = (i / segments) * Math.PI * 2;
+				const x = sphere.position.x + Math.cos(angle) * radius;
+				const z = sphere.position.z + Math.sin(angle) * radius;
+				supportPoints.push(new THREE.Vector3(x, groundY, z));
+			}
+		} 
+		else if (shapeType === 'ellipsoid') {
+			// For ellipsoid: get an ellipse on the ground plane
+			const ellipsoid = boundingShape;
+			const radiusX = ellipsoid.scale.x;
+			const radiusZ = ellipsoid.scale.z;
+			
+			// Create an ellipse of points for the support polygon
+			const segments = 16;
+			for (let i = 0; i < segments; i++) {
+				const angle = (i / segments) * Math.PI * 2;
+				const x = ellipsoid.position.x + Math.cos(angle) * radiusX;
+				const z = ellipsoid.position.z + Math.sin(angle) * radiusZ;
+				supportPoints.push(new THREE.Vector3(x, groundY, z));
+			}
+		}
+		
+		return supportPoints;
+	}
+	
+	// Check if a point is inside a polygon (2D check on XZ plane)
+	pointInSupportPolygon(point, polygonPoints) {
+		// Implementation of the ray casting algorithm for point-in-polygon test
+		let inside = false;
+		for (let i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+			const xi = polygonPoints[i].x, zi = polygonPoints[i].z;
+			const xj = polygonPoints[j].x, zj = polygonPoints[j].z;
+			
+			const intersect = ((zi > point.z) !== (zj > point.z)) &&
+				(point.x < (xj - xi) * (point.z - zi) / (zj - zi) + xi);
+				
+			if (intersect) inside = !inside;
+		}
+		
+		return inside;
+	}
+	
+	// Create visual elements to represent the balance status
+	createBalanceVisualization(comPosition, projectedCoM, supportPoints, groundY) {
+		// Create a group for all balance visualization elements
+		const balanceGroup = new THREE.Group();
+		
+		// 1. Create the support polygon visualization
+		const supportGeometry = new THREE.BufferGeometry();
+		supportGeometry.setFromPoints(supportPoints);
+		
+		// Close the polygon by connecting the last point back to the first
+		const supportLines = [...supportPoints];
+		if (supportPoints.length > 0) {
+			supportLines.push(supportPoints[0].clone());
+		}
+		
+		const supportLineGeometry = new THREE.BufferGeometry().setFromPoints(supportLines);
+		const supportMaterial = new THREE.LineBasicMaterial({ 
+			color: this.isBalanced ? 0x00ff00 : 0xff0000,
+			linewidth: 2
+		});
+		
+		this.supportPolygon = new THREE.Line(supportLineGeometry, supportMaterial);
+		balanceGroup.add(this.supportPolygon);
+		
+		// 2. Create the projected CoM visualization
+		const projectedGeometry = new THREE.SphereGeometry(3, 16, 16);
+		const projectedMaterial = new THREE.MeshBasicMaterial({ 
+			color: this.isBalanced ? 0x00ff00 : 0xff0000,
+			transparent: true,
+			opacity: 0.7
+		});
+		
+		this.projectedCoM = new THREE.Mesh(projectedGeometry, projectedMaterial);
+		this.projectedCoM.position.copy(projectedCoM);
+		balanceGroup.add(this.projectedCoM);
+		
+		// 3. Create a vertical line from CoM to its projection
+		const verticalLinePoints = [comPosition, projectedCoM];
+		const verticalLineGeometry = new THREE.BufferGeometry().setFromPoints(verticalLinePoints);
+		const verticalLineMaterial = new THREE.LineBasicMaterial({ 
+			color: 0xffffff,
+			transparent: true,
+			opacity: 0.5
+		});
+		
+		const verticalLine = new THREE.Line(verticalLineGeometry, verticalLineMaterial);
+		balanceGroup.add(verticalLine);
+		
+		// 4. Create a status text indicator
+		const balanceText = this.isBalanced ? "BALANCED (1)" : "UNBALANCED (0)";
+		console.log(`Balance status: ${balanceText} (CoM projection ${this.isBalanced ? 'inside' : 'outside'} support polygon)`);
+		
+		// 5. Create a visual indicator box at the top of the scene
+		const boxSize = 10;
+		const boxGeometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+		const boxMaterial = new THREE.MeshBasicMaterial({ 
+			color: this.isBalanced ? 0x00ff00 : 0xff0000,
+			transparent: true,
+			opacity: 0.7
+		});
+		
+		this.balanceIndicator = new THREE.Mesh(boxGeometry, boxMaterial);
+		// Position the indicator above the character
+		this.balanceIndicator.position.set(
+			comPosition.x, 
+			comPosition.y + 50, 
+			comPosition.z
+		);
+		balanceGroup.add(this.balanceIndicator);
+		
+		// Add the balance group to the descriptors group
+		this.descriptorsGroup.add(balanceGroup);
+		
+		return balanceGroup;
+	}
+	
+	updateBalance() {
+		if (this.activeDescriptor === 'balance') {
+			this.createBalance();
+		}
+	}
+	
+	// Initialize distance tracking
+	initDistanceTracking() {
+		// Clean up existing tracking elements
+		if (this.distanceTracker) {
+			this.descriptorsGroup.remove(this.distanceTracker);
+		}
+		
+		// Create a container group for all distance tracking elements
+		this.distanceTracker = new THREE.Group();
+		this.descriptorsGroup.add(this.distanceTracker);
+		
+		// Reset tracking data
+		this.pathPoints = [];
+		this.pathColors = []; // Store colors for path segments
+		this.pathSpeeds = []; // Store speed values for coloring
+		this.totalDistance = 0;
+		this.lastTrackedPosition = null;
+		this.lastTrackedTime = performance.now() / 1000; // Track time for speed calculation
+		this.distanceTrackingActive = true;
+		this.markerDistance = 10; // Place a marker every 10 units
+		this.nextMarkerAt = this.markerDistance; // Distance for next marker
+		this.lastAnimationTime = 0; // Store last animation time to detect loops
+		
+		// Find ground level
+		const groundY = this.findGroundLevel();
+		
+		// Use the currently selected joint
+		const currentJointName = selectedJoint();
+		const jointIndex = this.jointIndex[currentJointName] || 0;
+		
+		if (!this.sphereMeshes.children[jointIndex]) {
+			console.error(`Selected joint ${currentJointName} not found for distance tracking`);
+			return null;
+		}
+		
+		// Get initial position
+		const worldPos = new THREE.Vector3();
+		this.sphereMeshes.children[jointIndex].getWorldPosition(worldPos);
+		this.descriptorsGroup.parent.worldToLocal(worldPos);
+		
+		// Set the Y component to ground level (so we're tracking the projection on the floor)
+		worldPos.y = groundY;
+		this.lastTrackedPosition = worldPos.clone();
+		this.pathPoints.push(worldPos.clone());
+		this.pathSpeeds.push(0); // Initial speed is 0
+		this.pathColors.push(this.getColorFromSpeed(0)); // Initial color
+		
+		// Create a ground reference plane for better visual context (semi-transparent)
+		const groundSize = 300;
+		const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+		const groundMaterial = new THREE.MeshBasicMaterial({
+			color: 0xf0f0f0,
+			transparent: true,
+			opacity: 0.2,
+			side: THREE.DoubleSide,
+			depthWrite: false
+		});
+		
+		const groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
+		groundPlane.rotation.x = Math.PI / 2; // Make horizontal
+		groundPlane.position.y = groundY + 0.1; // Slightly above ground level
+		groundPlane.name = 'groundReferencePlane';
+		this.distanceTracker.add(groundPlane);
+		
+		// Create enhanced information display panel
+		this.createDistanceInfoPanel(currentJointName, groundY);
+		
+		// Create initial path visualization
+		this.createPathVisualization();
+		
+		return this.distanceTracker;
+	}
+	
+	// Create an enhanced information panel for distance data
+	createDistanceInfoPanel(jointName, groundY) {
+			// Remove previous HTML elements if they exist
+			this.removeExistingHTMLPanel();
+			
+			// Create a new HTML element to display the distance tracking info
+			const distanceDisplay = document.createElement('div');
+			distanceDisplay.id = 'distance-tracker-hud';
+			distanceDisplay.style.position = 'fixed';
+			distanceDisplay.style.top = '5px';
+			distanceDisplay.style.right = 'auto'; // Don't position from right
+			distanceDisplay.style.left = '150px'; // Position from left instead
+			distanceDisplay.style.padding = '5px';
+			distanceDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+			distanceDisplay.style.color = 'white';
+			distanceDisplay.style.fontFamily = 'Arial, sans-serif';
+			distanceDisplay.style.fontSize = '14px';
+			distanceDisplay.style.borderRadius = '5px';
+			distanceDisplay.style.zIndex = '1000';
+			distanceDisplay.style.textAlign = 'left';
+			distanceDisplay.style.width = '200px';
+			distanceDisplay.style.border = '1px solid rgba(0, 100, 200, 0.8)';
+			distanceDisplay.style.boxShadow = '0px 0px 10px rgba(0, 0, 0, 0.5)';
+			
+			// Add HTML content
+			distanceDisplay.innerHTML = `
+				<div style="background-color: rgba(0, 100, 200, 0.8); padding: 4px; border-radius: 4px 4px 0 0; text-align: center; font-weight: bold;">
+					Distance: ${jointName}
+				</div>
+				<div id="distance-value" style="padding: 4px; font-size: 16px;">
+					Total: 0.00 units
+				</div>
+				<div id="speed-value" style="padding: 4px; color: rgb(100, 200, 255);">
+					Speed: 0.00 units/s
+				</div>
+				<div style="padding: 4px; font-size: 11px;">
+					Speed:
+					<div style="width: 100%; height: 10px; background: linear-gradient(to right, blue, green, red);"></div>
+				</div>
+			`;
+			
+			// Append to document body
+			document.body.appendChild(distanceDisplay);
+			
+			// Store reference to the elements we need to update
+			this.distanceDisplay = distanceDisplay;
+			this.distanceValueElement = document.getElementById('distance-value');
+			this.speedValueElement = document.getElementById('speed-value');
+		}
+	
+	// Remove existing HTML panel if it exists
+	removeExistingHTMLPanel() {
+		const existingPanel = document.getElementById('distance-tracker-hud');
+		if (existingPanel) {
+			existingPanel.parentNode.removeChild(existingPanel);
+		}
+	}
+	
+	// Helper function to draw rounded rectangles on canvas
+	roundRect(ctx, x, y, width, height, radius) {
+		if (typeof radius === 'number') {
+			radius = {tl: radius, tr: radius, br: radius, bl: radius};
+		} else {
+			radius = {...{tl: 0, tr: 0, br: 0, bl: 0}, ...radius};
+		}
+		ctx.beginPath();
+		ctx.moveTo(x + radius.tl, y);
+		ctx.lineTo(x + width - radius.tr, y);
+		ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+		ctx.lineTo(x + width, y + height - radius.br);
+		ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+		ctx.lineTo(x + radius.bl, y + height);
+		ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+		ctx.lineTo(x, y + radius.tl);
+		ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+		ctx.closePath();
+	}
+	
+	// Create the path visualization with color-coding
+	createPathVisualization() {
+		// Remove existing path if any
+		const existingPath = this.distanceTracker.getObjectByName('pathLine');
+		if (existingPath) {
+			this.distanceTracker.remove(existingPath);
+		}
+		
+		// Create a group for the path visualization
+		const pathGroup = new THREE.Group();
+		pathGroup.name = 'pathLine';
+		this.distanceTracker.add(pathGroup);
+		
+		// Create multi-colored line segments
+		if (this.pathPoints.length < 2) return;
+		
+		for (let i = 1; i < this.pathPoints.length; i++) {
+			// Create a line segment between consecutive points with color based on speed
+			const segmentGeometry = new THREE.BufferGeometry().setFromPoints([
+				this.pathPoints[i-1], 
+				this.pathPoints[i]
+			]);
+			
+			const segmentMaterial = new THREE.LineBasicMaterial({ 
+				color: this.pathColors[i-1],
+				linewidth: 3
+			});
+			
+			const lineSegment = new THREE.Line(segmentGeometry, segmentMaterial);
+			pathGroup.add(lineSegment);
+		}
+		
+		// Add distance markers at regular intervals
+		this.createDistanceMarkers(pathGroup);
+	}
+	
+	// Create distance markers along the path
+	createDistanceMarkers(pathGroup) {
+		// Clear existing markers first
+		const existingMarkers = this.distanceTracker.getObjectByName('distanceMarkers');
+		if (existingMarkers) {
+			this.distanceTracker.remove(existingMarkers);
+		}
+		
+		const markersGroup = new THREE.Group();
+		markersGroup.name = 'distanceMarkers';
+		this.distanceTracker.add(markersGroup);
+		
+		// Calculate positions for markers at regular distances
+		let currentDistance = this.markerDistance;
+		let cumulativeDistance = 0;
+		
+		for (let i = 1; i < this.pathPoints.length; i++) {
+			const lastPos = this.pathPoints[i-1];
+			const currentPos = this.pathPoints[i];
+			const segmentLength = lastPos.distanceTo(currentPos);
+			
+			// Check if we cross a marker threshold in this segment
+			if (cumulativeDistance + segmentLength >= currentDistance) {
+				// Calculate how far along this segment the marker should be
+				const fraction = (currentDistance - cumulativeDistance) / segmentLength;
+				const markerPos = new THREE.Vector3().lerpVectors(lastPos, currentPos, fraction);
+				
+				// Create marker geometry
+				const markerGeometry = new THREE.CircleGeometry(1, 16);
+				const markerMaterial = new THREE.MeshBasicMaterial({ 
+					color: 0xffff00,
+					side: THREE.DoubleSide
+				});
+				
+				const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+				marker.position.copy(markerPos);
+				marker.rotation.x = -Math.PI/2; // Make horizontal
+				markersGroup.add(marker);
+				
+				// Create text label for distance
+				this.createDistanceLabel(markersGroup, markerPos.clone(), currentDistance);
+				
+				// Set up the next marker distance
+				currentDistance += this.markerDistance;
+			}
+			
+			cumulativeDistance += segmentLength;
+		}
+	}
+	
+	// Create a text label for a distance marker
+	createDistanceLabel(group, position, distance) {
+		const canvas = document.createElement('canvas');
+		canvas.width = 64;
+		canvas.height = 32;
+		const context = canvas.getContext('2d');
+		
+		// Draw background
+		context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+		this.roundRect(context, 0, 0, canvas.width, canvas.height, 5);
+		context.fill();
+		
+		// Draw text
+		context.font = 'bold 16px Arial';
+		context.fillStyle = 'white';
+		context.textAlign = 'center';
+		context.fillText(`${distance.toFixed(0)}`, canvas.width/2, canvas.height/2 + 5);
+		
+		// Create sprite
+		const texture = new THREE.CanvasTexture(canvas);
+		const material = new THREE.SpriteMaterial({ 
+			map: texture,
+			transparent: true
+		});
+		
+		const label = new THREE.Sprite(material);
+		label.position.copy(position);
+		label.position.y += 3; // Raise above the ground
+		label.scale.set(6, 3, 1);
+		group.add(label);
+	}
+	
+	// Map speed value to color
+	getColorFromSpeed(speed) {
+		// Define color stops for the gradient
+		const colorStops = [
+			{ speed: 0, color: new THREE.Color(0x0000ff) },   // Blue for slow
+			{ speed: 20, color: new THREE.Color(0x00ff00) },  // Green for medium
+			{ speed: 50, color: new THREE.Color(0xff0000) }   // Red for fast
+		];
+		
+		// Find appropriate color range
+		for (let i = 0; i < colorStops.length - 1; i++) {
+			if (speed <= colorStops[i+1].speed) {
+				// Calculate interpolation factor between the two color stops
+				const factor = (speed - colorStops[i].speed) / 
+							   (colorStops[i+1].speed - colorStops[i].speed);
+				
+				// Create a new color interpolated between the two stops
+				const color = new THREE.Color().lerpColors(
+					colorStops[i].color,
+					colorStops[i+1].color,
+					factor
+				);
+				
+				return color;
+			}
+		}
+		
+		// If speed is higher than the max defined, return the last color
+		return colorStops[colorStops.length - 1].color;
+	}
+	
+	// Update distance tracking with current position
+	updateDistanceTracking() {
+		if (!this.distanceTrackingActive || !this.distanceTracker) {
+			return;
+		}
+		
+		// Use the currently selected joint
+		const currentJointName = selectedJoint();
+		const jointIndex = this.jointIndex[currentJointName] || 0;
+		
+		if (!this.sphereMeshes.children[jointIndex]) {
+			return;
+		}
+		
+		// Get current animation time to detect loops
+		const currentAnimationTime = this.mixer ? this.mixer.time : 0;
+		
+		// Check if animation has looped (current time is significantly less than last time)
+		// This happens when animation restarts from the beginning
+		if (this.lastAnimationTime > 0 && 
+		    currentAnimationTime < this.lastAnimationTime && 
+		    (this.lastAnimationTime - currentAnimationTime) > 0.5) {
+		    
+		    console.log("Animation loop detected - resetting distance tracking");
+		    this.resetDistanceTracking();
+		    return;
+		}
+		
+		// Store current time for next comparison
+		this.lastAnimationTime = currentAnimationTime;
+		
+		// Get current time for speed calculation
+		const currentTime = performance.now() / 1000;
+		const deltaTime = currentTime - this.lastTrackedTime;
+		
+		// Get current position
+		const worldPos = new THREE.Vector3();
+		this.sphereMeshes.children[jointIndex].getWorldPosition(worldPos);
+		this.descriptorsGroup.parent.worldToLocal(worldPos);
+		
+		// Get ground level
+		const groundY = this.findGroundLevel();
+		
+		// Set the Y component to ground level (tracking projection on floor)
+		worldPos.y = groundY;
+		
+		// Calculate distance and speed
+		if (this.lastTrackedPosition && deltaTime > 0) {
+			// Create temporary vectors with Y set to 0 to measure XZ distance only
+			const lastPos2D = new THREE.Vector3(this.lastTrackedPosition.x, 0, this.lastTrackedPosition.z);
+			const currPos2D = new THREE.Vector3(worldPos.x, 0, worldPos.z);
+			
+			// Calculate distance between points
+			const segmentDistance = lastPos2D.distanceTo(currPos2D);
+			const speed = segmentDistance / deltaTime;
+			
+			// Only add to path if moved a significant distance (to avoid tiny segments)
+			if (segmentDistance > 0.5) {
+				this.pathPoints.push(worldPos.clone());
+				this.pathSpeeds.push(speed);
+				this.pathColors.push(this.getColorFromSpeed(speed));
+				this.totalDistance += segmentDistance;
+				this.lastTrackedPosition = worldPos.clone();
+				this.lastTrackedTime = currentTime;
+				
+				// Update visualization
+				this.createPathVisualization();
+				this.updateDistanceInfoPanel(speed);
+			}
+		}
+	}
+	
+	// Update the information panel with new distance and speed data
+	updateDistanceInfoPanel(currentSpeed) {
+		// Update the HTML elements
+		if (this.distanceValueElement && this.speedValueElement) {
+			// Update distance value
+			this.distanceValueElement.textContent = `Total: ${this.totalDistance.toFixed(2)} units`;
+			
+			// Update speed with color coding based on speed
+			this.speedValueElement.textContent = `Speed: ${currentSpeed.toFixed(2)} units/s`;
+			
+			// Apply color to speed text based on value
+			let speedColor = 'rgb(100, 200, 255)'; // Default blue for slow
+			if (currentSpeed >= 30) {
+				speedColor = 'rgb(255, 100, 100)'; // Red for fast
+			} else if (currentSpeed >= 10) {
+				speedColor = 'rgb(100, 255, 100)'; // Green for medium
+			}
+			this.speedValueElement.style.color = speedColor;
+		}
+	}
+	
+	// Reset distance tracking
+	resetDistanceTracking() {
+		this.pathPoints = [];
+		this.pathColors = [];
+		this.pathSpeeds = [];
+		this.totalDistance = 0;
+		this.lastTrackedPosition = null;
+		this.lastTrackedTime = performance.now() / 1000;
+		this.nextMarkerAt = this.markerDistance;
+		
+		if (this.distanceTrackingActive && this.distanceTracker) {
+			this.initDistanceTracking();
 		}
 	}
 }

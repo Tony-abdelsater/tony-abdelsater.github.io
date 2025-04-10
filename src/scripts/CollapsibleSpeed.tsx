@@ -12,12 +12,20 @@ import { Checkbox } from "@kobalte/core/checkbox"
 export function CollapsibleSpeed() {
     const [arrow, setArrow] = createSignal("\u25BC")
     const [activeDescriptor, setActiveDescriptor] = createSignal("none")
+    const [activeSpaceDescriptor, setActiveSpaceDescriptor] = createSignal("none")
     
     const descriptorOptions = [
         { value: "none", label: "None" },
         { value: "box", label: "Bounding Box" },
         { value: "sphere", label: "Bounding Sphere" },
         { value: "ellipsoid", label: "Bounding Ellipsoid" },
+        { value: "com", label: "Center of Mass (CoM)" },
+        { value: "balance", label: "Balance" },
+    ]
+    
+    const spaceDescriptorOptions = [
+        { value: "none", label: "None" },
+        { value: "distance", label: "Distance Covered" }
     ]
 
     // Handle descriptor selection change
@@ -30,6 +38,27 @@ export function CollapsibleSpeed() {
         skeletonViewersSig().forEach(viewer => {
             viewer.setActiveDescriptor(value)
         })
+    }
+    
+    // Handle space descriptor selection change
+    const handleSpaceDescriptorChange = (event) => {
+        const value = event.target.value
+        setActiveSpaceDescriptor(value)
+        
+        // Update all skeleton viewers with the space descriptor
+        skeletonViewersSig().forEach(viewer => {
+            viewer.setActiveDescriptor(value)
+            
+            // If selecting "none", ensure we clean up the distance tracker HTML elements
+            if (value === "none") {
+                const existingPanel = document.getElementById('distance-tracker-hud');
+                if (existingPanel) {
+                    existingPanel.parentNode.removeChild(existingPanel);
+                }
+            }
+        })
+        
+        console.log(`Selected space descriptor: ${value}`)
     }
 
     // Initialize with stored state
@@ -79,6 +108,20 @@ export function CollapsibleSpeed() {
                             onChange={handleDescriptorChange}
                         >
                             {descriptorOptions.map((option) => (
+                                <option value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Space Descriptors section */}
+                    <div style="margin-top: 15px;">
+                        <h4 style="margin-bottom: 5px; font-size: 14px;">Space Descriptors</h4>
+                        <select 
+                            style="width:100%; padding:5px; border-radius:4px;" 
+                            value={activeSpaceDescriptor()}
+                            onChange={handleSpaceDescriptorChange}
+                        >
+                            {spaceDescriptorOptions.map((option) => (
                                 <option value={option.value}>{option.label}</option>
                             ))}
                         </select>
