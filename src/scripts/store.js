@@ -109,6 +109,22 @@ const [jerkDataNorm, setJerkDataNorm] = createSignal([])
 
 // Geometric descriptor state
 const [activeGeometricDescriptor, setActiveGeometricDescriptor] = createSignal('none')
+const [activeSpaceDescriptor, setActiveSpaceDescriptor] = createSignal('none')
+const [activeTemporalDescriptor, setActiveTemporalDescriptor] = createSignal('none')
+
+// For the metric information panel
+const [showMetricInfo, setShowMetricInfo] = createSignal(true)
+const [currentMetricInfo, setCurrentMetricInfo] = createSignal({
+  title: '',
+  description: '',
+  calculation: '',
+  quality: '',
+  interpretation: '',
+  unit: ''
+})
+
+// For draggable distance popup
+const [distancePopupPosition, setDistancePopupPosition] = createSignal({ x: 20, y: 20 })
 
 // const [isXPressed, setXPressed] = createSignal(true);
 // const [isYPressed, setYPressed] = createSignal(false);
@@ -274,6 +290,24 @@ export {
 	// Geometric descriptor exports
 	activeGeometricDescriptor,
 	setActiveGeometricDescriptor,
+	
+	// Space descriptor exports
+	activeSpaceDescriptor,
+	setActiveSpaceDescriptor,
+	
+	// Temporal descriptor exports
+	activeTemporalDescriptor,
+	setActiveTemporalDescriptor,
+	
+	// Metric info panel exports
+	showMetricInfo,
+	setShowMetricInfo,
+	currentMetricInfo,
+	setCurrentMetricInfo,
+	
+	// Draggable distance popup
+	distancePopupPosition,
+	setDistancePopupPosition,
 	
 	// Jerk data exports
 	jerkDataX,

@@ -14,9 +14,11 @@ import {
     setSplitterSizePlotR,
     splitterSizePlotExpressive,
     setSplitterSizePlotExpressive,
-    showSpeedPlot
+    showSpeedPlot,
+    activeTemporalDescriptor,
+    motionMetric
 } from "./store"
-import { createEffect } from "solid-js"
+import { createEffect, Show } from "solid-js"
 import { ResizeEverything } from "./ResizeEverything"
 import { SpeedPlot } from "./SpeedPlot"
 
@@ -25,6 +27,15 @@ function toggleAxis(axis) {
     if (axis === "y") return "Y"
     if (axis === "z") return "Z"
     return axis
+}
+
+function getMetricTitle(metric) {
+    switch(metric()) {
+        case 'speed': return 'Speed Analysis';
+        case 'acceleration': return 'Acceleration Analysis';
+        case 'jerk': return 'Jerk Analysis';
+        default: return 'Temporal Analysis';
+    }
 }
 
 const SplitterV_Plots = () => (
@@ -61,12 +72,13 @@ const SplitterV_Plots = () => (
             </div>
             <div id="plotPanel_3D" style={{ width: "100%", height: "100%" }} />
         </Splitter.Panel>
-        {showSpeedPlot() && (
+        {/* Only show the speed plot when a temporal metric is selected */}
+        {activeTemporalDescriptor() !== 'none' && showSpeedPlot() && (
             <>
                 <Splitter.ResizeTrigger id="nested2-b:nested2-c" class="plotSplitter" />
                 <Splitter.Panel id="nested2-c" style={{ height: "100%" }}>
                     <div class="plotTitle" id="plotTitleSpeed">
-                        Speed Analysis of {" "}
+                        <span class="selectedRowColor">{getMetricTitle(motionMetric)}</span> of {" "}
                         <span class="selectedRowColor">{selectedJoint()}</span>
                     </div>
                     <SpeedPlot />

@@ -1,14 +1,25 @@
 import { Splitter } from "@ark-ui/solid"
-
+import { createEffect, createSignal } from "solid-js"
+import { CollapsibleAnalysis } from "./CollapsibleAnalysis"
+import { CollapsibleMotionAnalysis } from "./CollapsibleMotionAnalysis"
 import { CollapsibleLoadData } from "./CollapsibleLoadData"
 import { CollapsibleVisControls } from "./CollapsibleVisControls"
-import { CollapsibleSpeed } from "./CollapsibleSpeed"
+import { JointSelector } from "./JointSelector"
 import { ResizeEverything } from "./ResizeEverything"
+import { SpeedPlot } from "./SpeedPlot"
+
+import {
+	splitterSizeL,
+	setSplitterSizeL,
+	splitterSizeR,
+	setSplitterSizeR,
+	showSpeedPlot,
+	mainPageLoaded,
+} from "./store"
 
 import "ag-grid-community/styles/ag-grid.css"
 import "ag-grid-community/styles/ag-theme-quartz.css"
 import { SplitterV_SkelL_DexR } from "./SplitterV_SkelL_DexR"
-import { CollapsibleAnalysis } from "./CollapsibleAnalysis"
 
 import { exportBVH } from "./ExportBVH"
 // import { myScene } from "./myScene_hide"
@@ -59,7 +70,7 @@ const SplitterMainV_LMenu = () => {
 				>
 					<CollapsibleLoadData />
 					<CollapsibleVisControls />
-					<CollapsibleSpeed />
+					<CollapsibleMotionAnalysis />
 					<CollapsibleAnalysis />
 					<button
 						// onclick={exportBVHFunc}

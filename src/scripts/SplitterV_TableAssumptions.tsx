@@ -12,12 +12,12 @@ import {
 } from "./store"
 import { ResizeEverything } from "./ResizeEverything"
 import { Button } from "@kobalte/core/button"
-import { AxisSelector } from "./AxisSelector"
-import { TableAndPlotsUpdate } from "./CheckboxDexAnalysis"
+// import { AxisSelector } from "./AxisSelector"
+// import { TableAndPlotsUpdate } from "./CheckboxDexAnalysis"
 
 function ResetAllButton() {
 	set_df_coef_mod(df_coef())
-	TableAndPlotsUpdate()
+	// TableAndPlotsUpdate()
 }
 
 // This is your nested splitter component.

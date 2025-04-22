@@ -2191,53 +2191,95 @@ class SkeletonViewer {
 	
 	// Create an enhanced information panel for distance data
 	createDistanceInfoPanel(jointName, groundY) {
-			// Remove previous HTML elements if they exist
-			this.removeExistingHTMLPanel();
-			
-			// Create a new HTML element to display the distance tracking info
-			const distanceDisplay = document.createElement('div');
-			distanceDisplay.id = 'distance-tracker-hud';
-			distanceDisplay.style.position = 'fixed';
-			distanceDisplay.style.top = '5px';
-			distanceDisplay.style.right = 'auto'; // Don't position from right
-			distanceDisplay.style.left = '150px'; // Position from left instead
-			distanceDisplay.style.padding = '5px';
-			distanceDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-			distanceDisplay.style.color = 'white';
-			distanceDisplay.style.fontFamily = 'Arial, sans-serif';
-			distanceDisplay.style.fontSize = '14px';
-			distanceDisplay.style.borderRadius = '5px';
-			distanceDisplay.style.zIndex = '1000';
-			distanceDisplay.style.textAlign = 'left';
-			distanceDisplay.style.width = '200px';
-			distanceDisplay.style.border = '1px solid rgba(0, 100, 200, 0.8)';
-			distanceDisplay.style.boxShadow = '0px 0px 10px rgba(0, 0, 0, 0.5)';
-			
-			// Add HTML content
-			distanceDisplay.innerHTML = `
-				<div style="background-color: rgba(0, 100, 200, 0.8); padding: 4px; border-radius: 4px 4px 0 0; text-align: center; font-weight: bold;">
-					Distance: ${jointName}
-				</div>
-				<div id="distance-value" style="padding: 4px; font-size: 16px;">
-					Total: 0.00 units
-				</div>
-				<div id="speed-value" style="padding: 4px; color: rgb(100, 200, 255);">
-					Speed: 0.00 units/s
-				</div>
-				<div style="padding: 4px; font-size: 11px;">
-					Speed:
-					<div style="width: 100%; height: 10px; background: linear-gradient(to right, blue, green, red);"></div>
-				</div>
-			`;
-			
-			// Append to document body
-			document.body.appendChild(distanceDisplay);
-			
-			// Store reference to the elements we need to update
-			this.distanceDisplay = distanceDisplay;
-			this.distanceValueElement = document.getElementById('distance-value');
-			this.speedValueElement = document.getElementById('speed-value');
+		// Remove previous HTML elements if they exist
+		this.removeExistingHTMLPanel();
+		
+		// Create a new HTML element to display the distance tracking info
+		const distanceDisplay = document.createElement('div');
+		distanceDisplay.id = 'distance-tracker-hud';
+		distanceDisplay.style.position = 'fixed';
+		distanceDisplay.style.top = '20px';
+		distanceDisplay.style.right = 'auto'; // Don't position from right
+		distanceDisplay.style.left = '150px'; // Position from left instead
+		distanceDisplay.style.padding = '5px';
+		distanceDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+		distanceDisplay.style.color = 'white';
+		distanceDisplay.style.fontFamily = 'Arial, sans-serif';
+		distanceDisplay.style.fontSize = '14px';
+		distanceDisplay.style.borderRadius = '5px';
+		distanceDisplay.style.zIndex = '1000';
+		distanceDisplay.style.textAlign = 'left';
+		distanceDisplay.style.width = '200px';
+		distanceDisplay.style.border = '1px solid rgba(0, 100, 200, 0.8)';
+		distanceDisplay.style.boxShadow = '0px 0px 10px rgba(0, 0, 0, 0.5)';
+		distanceDisplay.style.cursor = 'move'; // Add move cursor to indicate draggable
+		
+		// Add HTML content
+		distanceDisplay.innerHTML = `
+			<div style="background-color: rgba(0, 100, 200, 0.8); padding: 4px; border-radius: 4px 4px 0 0; text-align: center; font-weight: bold; cursor: move;" class="distance-tracker-header">
+				Distance: ${jointName}
+			</div>
+			<div id="distance-value" style="padding: 4px; font-size: 16px;">
+				Total: 0.00 units
+			</div>
+			<div id="speed-value" style="padding: 4px; color: rgb(100, 200, 255);">
+				Speed: 0.00 units/s
+			</div>
+			<div style="padding: 4px; font-size: 11px;">
+				Speed:
+				<div style="width: 100%; height: 10px; background: linear-gradient(to right, blue, green, red);"></div>
+			</div>
+		`;
+		
+		// Append to document body
+		document.body.appendChild(distanceDisplay);
+		
+		// Store reference to the elements we need to update
+		this.distanceDisplay = distanceDisplay;
+		this.distanceValueElement = document.getElementById('distance-value');
+		this.speedValueElement = document.getElementById('speed-value');
+		
+		// Make the panel draggable
+		this.makeDistancePanelDraggable(distanceDisplay);
+	}
+	
+	// Make the distance panel draggable
+	makeDistancePanelDraggable(element) {
+		let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+		const header = element.querySelector('.distance-tracker-header') || element;
+		
+		header.onmousedown = dragMouseDown;
+		
+		function dragMouseDown(e) {
+			e = e || window.event;
+			e.preventDefault();
+			// Get the mouse cursor position at startup
+			pos3 = e.clientX;
+			pos4 = e.clientY;
+			document.onmouseup = closeDragElement;
+			// Call a function whenever the cursor moves
+			document.onmousemove = elementDrag;
 		}
+		
+		function elementDrag(e) {
+			e = e || window.event;
+			e.preventDefault();
+			// Calculate the new cursor position
+			pos1 = pos3 - e.clientX;
+			pos2 = pos4 - e.clientY;
+			pos3 = e.clientX;
+			pos4 = e.clientY;
+			// Set the element's new position
+			element.style.top = (element.offsetTop - pos2) + "px";
+			element.style.left = (element.offsetLeft - pos1) + "px";
+		}
+		
+		function closeDragElement() {
+			// Stop moving when mouse button is released
+			document.onmouseup = null;
+			document.onmousemove = null;
+		}
+	}
 	
 	// Remove existing HTML panel if it exists
 	removeExistingHTMLPanel() {
@@ -2432,15 +2474,25 @@ class SkeletonViewer {
 		
 		// Get current animation time to detect loops
 		const currentAnimationTime = this.mixer ? this.mixer.time : 0;
+		const isPlaying = playPressed();
 		
 		// Check if animation has looped (current time is significantly less than last time)
 		// This happens when animation restarts from the beginning
 		if (this.lastAnimationTime > 0 && 
-		    currentAnimationTime < this.lastAnimationTime && 
-		    (this.lastAnimationTime - currentAnimationTime) > 0.5) {
+		    ((currentAnimationTime < this.lastAnimationTime && 
+		    (this.lastAnimationTime - currentAnimationTime) > 0.5) ||
+		    // Also reset when manually restarting the animation
+		    (currentAnimationTime === 0 && this.lastAnimationTime > 0.5))) {
 		    
-		    console.log("Animation loop detected - resetting distance tracking");
+		    console.log("Animation loop/restart detected - resetting distance tracking");
 		    this.resetDistanceTracking();
+		    return;
+		}
+		
+		// Only track distance if animation is actually playing
+		if (!isPlaying) {
+		    // Still store current time for comparison
+		    this.lastAnimationTime = currentAnimationTime;
 		    return;
 		}
 		
@@ -2473,7 +2525,8 @@ class SkeletonViewer {
 			const speed = segmentDistance / deltaTime;
 			
 			// Only add to path if moved a significant distance (to avoid tiny segments)
-			if (segmentDistance > 0.5) {
+			// Reduced threshold for more accurate tracking
+			if (segmentDistance > 0.1) {
 				this.pathPoints.push(worldPos.clone());
 				this.pathSpeeds.push(speed);
 				this.pathColors.push(this.getColorFromSpeed(speed));
@@ -2485,6 +2538,10 @@ class SkeletonViewer {
 				this.createPathVisualization();
 				this.updateDistanceInfoPanel(speed);
 			}
+		} else if (!this.lastTrackedPosition) {
+			// Initialize tracking position if this is the first update
+			this.lastTrackedPosition = worldPos.clone();
+			this.lastTrackedTime = currentTime;
 		}
 	}
 	
