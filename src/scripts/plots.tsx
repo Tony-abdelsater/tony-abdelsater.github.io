@@ -1021,14 +1021,41 @@ function ScatterTitle3D() {
 // }
 
 const createPlot3D = (currentTime) => {
-	const container = document.getElementById("plotPanel_3D")
-	if (!chart3D()) {
-		const myChart = echarts.init(container)
-		setChart3D(myChart) // Store the chart instance the first time
+	const container = document.getElementById("plotPanel_3D");
+
+	// Check if the container element exists in the DOM
+	if (!container) {
+		console.warn("createPlot3D: Container element #plotPanel_3D not found. Skipping chart creation.");
+		// Optionally dispose of the old chart if it exists and the container is gone
+		if (chart3D()) {
+			chart3D().dispose();
+			setChart3D(null);
+		}
+		return; // Exit if no container
 	}
 
-	const myChart = chart3D()
-	const currentPointIndex = Math.round(currentTime * 90)
+	// Initialize chart only if it doesn't exist yet and container is valid
+	if (!chart3D()) {
+		console.log("createPlot3D: Initializing 3D chart.");
+		const myChart = echarts.init(container);
+		setChart3D(myChart);
+	} else {
+		// Ensure the existing chart is associated with the correct container (might be redundant but safe)
+		if (chart3D().getDom() !== container) {
+			console.warn("createPlot3D: Chart DOM mismatch. Re-initializing.");
+			chart3D().dispose();
+			const myChart = echarts.init(container);
+			setChart3D(myChart);
+		}
+	}
+
+	const myChart = chart3D(); // Get the potentially newly created or existing chart
+	if (!myChart) {
+		console.error("createPlot3D: Failed to get chart instance after initialization attempt.");
+		return; // Should not happen if init succeeded
+	}
+
+	const currentPointIndex = Math.round(currentTime * 90);
 
 	// Prepare data for all viewers
 	const series = skeletonViewersSig().map((viewer, index) => {
@@ -1334,18 +1361,30 @@ const createPlot2D_Predict = async () => {
 }
 
 const resizePlots = () => {
-	//console.log('jhjkhjkjkhkj')
+	const chart2DInstance = chart2D();
+	const chart3DInstance = chart3D();
+	const chartVectorInstance = chartVector();
+	const chart2DPredictInstance = chart2D_predict();
 
-	chart2D().resize()
-	chart3D().resize()
-
-	try {
-		chartVector().resize()
-		chart2D_predict().resize()
-	} catch (error) {
-		console.error(error)
+	if (chart2DInstance) {
+		chart2DInstance.resize();
 	}
-}
+	if (chart3DInstance) {
+		chart3DInstance.resize();
+	}
+
+	// Keep the try-catch for potentially uninitialized charts, though checks are safer
+	try {
+		if (chartVectorInstance) {
+			chartVectorInstance.resize();
+		}
+		if (chart2DPredictInstance) {
+			chart2DPredictInstance.resize();
+		}
+	} catch (error) {
+		console.error("Error resizing vector or predict chart:", error);
+	}
+};
 
 export {
 	createPlot2D,

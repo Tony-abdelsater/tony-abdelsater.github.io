@@ -18,8 +18,8 @@ import {
     setMotionMetric
 } from "./store"
 import { Checkbox } from "@kobalte/core/checkbox"
-import { MetricInfoPanel } from "./MetricInfoPanel.tsx"
 import { MetricAnalysisPanel } from "./MetricAnalysisPanel.tsx"
+import { MetricInfoPanel } from "./MetricInfoPanel" // <-- Add this import
 
 export function CollapsibleMotionAnalysis() {
     const [arrow, setArrow] = createSignal("\u25BC")
@@ -49,7 +49,9 @@ export function CollapsibleMotionAnalysis() {
     // Handle metric selection changes
     const handleGeometricalMetricChange = (event) => {
         const value = event.target.value
+        console.log("Geometrical Metric Changed to:", value); // Log selection
         setActiveGeometricDescriptor(value)
+        console.log("Active Geometric Descriptor:", activeGeometricDescriptor()); // Log state after update
         
         // Update all skeleton viewers
         skeletonViewersSig().forEach(viewer => {
@@ -121,7 +123,9 @@ export function CollapsibleMotionAnalysis() {
     
     const handleSpatialMetricChange = (event) => {
         const value = event.target.value
+        console.log("Spatial Metric Changed to:", value); // Log selection
         setActiveSpaceDescriptor(value)
+        console.log("Active Space Descriptor:", activeSpaceDescriptor()); // Log state after update
         
         // Update all skeleton viewers with the spatial descriptor
         skeletonViewersSig().forEach(viewer => {
@@ -165,7 +169,9 @@ export function CollapsibleMotionAnalysis() {
     
     const handleTemporalMetricChange = (event) => {
         const value = event.target.value
+        console.log("Temporal Metric Changed to:", value); // Log selection
         setActiveTemporalDescriptor(value)
+        console.log("Active Temporal Descriptor:", activeTemporalDescriptor()); // Log state after update
         setMotionMetric(value)
         
         // Ensure the metric info panel is shown when a metric is selected
@@ -235,8 +241,20 @@ export function CollapsibleMotionAnalysis() {
             setActiveTemporalDescriptor(currentMetric);
             // Update the information with new metric details
             handleTemporalMetricChange({ target: { value: currentMetric } });
+            // Ensure metric info panel is visible
+            setShowMetricInfo(true);
         }
     })
+
+    // Function to check if any metric is active (for Show component)
+    const isAnyMetricActive = () => {
+        const geoActive = activeGeometricDescriptor() !== "none";
+        const spaceActive = activeSpaceDescriptor() !== "none";
+        const temporalActive = activeTemporalDescriptor() !== "none";
+        const shouldShow = geoActive || spaceActive || temporalActive;
+        console.log(`Checking if metric active: Geo=${geoActive}, Space=${spaceActive}, Temporal=${temporalActive}, ShouldShow=${shouldShow}`);
+        return shouldShow;
+    }
 
     return (
         <Collapsible
@@ -296,8 +314,9 @@ export function CollapsibleMotionAnalysis() {
                         </div>
                     </div>
                     
-                    {/* Show the information panel when a metric is selected */}
-                    <Show when={activeGeometricDescriptor() !== "none" || activeSpaceDescriptor() !== "none" || activeTemporalDescriptor() !== "none"}>
+                    {/* Metric Information Checkbox and Panel Section */}
+                    {/* Use the logging function in the 'when' prop */}
+                    <Show when={isAnyMetricActive()}>
                         <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 15px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <h3 style="margin: 0; font-size: 16px; color: #333;">Metric Information</h3>
@@ -315,9 +334,15 @@ export function CollapsibleMotionAnalysis() {
                                 </Checkbox>
                             </div>
                             
-                            <Show when={showMetricInfo()}>
-                                <MetricInfoPanel />
-                            </Show>
+                            {/* Remove the MetricInfoPanel from here - it will show in the 3D plot area instead */}
+                        </div>
+                    </Show>
+
+                    {/* Metric Analysis Panel Section */}
+                    <Show when={activeGeometricDescriptor() !== "none" || activeSpaceDescriptor() !== "none" || activeTemporalDescriptor() !== "none"}>
+                        <div style="margin-top: 20px;">
+                            <h3 style="margin-bottom: 10px; font-size: 16px; color: #333;">Metric Analysis</h3>
+                            <MetricAnalysisPanel />
                         </div>
                     </Show>
                 </div>

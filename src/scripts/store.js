@@ -113,7 +113,7 @@ const [activeSpaceDescriptor, setActiveSpaceDescriptor] = createSignal('none')
 const [activeTemporalDescriptor, setActiveTemporalDescriptor] = createSignal('none')
 
 // For the metric information panel
-const [showMetricInfo, setShowMetricInfo] = createSignal(true)
+const [showMetricInfo, setShowMetricInfo] = createSignal(false)
 const [currentMetricInfo, setCurrentMetricInfo] = createSignal({
   title: '',
   description: '',

@@ -49,34 +49,9 @@ async function initialize() {
 
 	// Function to reload all skeleton viewers
 	const reloadSkeletonViewers = async () => {
-		console.log("Reloading skeleton viewers...")
-		setSelectedJoint("Hips")
-		setSelectedValue("Hips")
-
-		// Remove all existing skeletons
-		skeletonViewers.forEach((viewer, index) => {
-			// Remove sphereMeshes
-			if (viewer.sphereMeshes) {
-				if (Array.isArray(viewer.sphereMeshes)) {
-					viewer.sphereMeshes.forEach((mesh) =>
-						scene.scene.remove(mesh)
-					)
-				} else {
-					scene.scene.remove(viewer.sphereMeshes)
-				}
-			}
-
-			// Remove lineMeshes
-			if (viewer.lineMeshes) {
-				if (Array.isArray(viewer.lineMeshes)) {
-					viewer.lineMeshes.forEach((mesh) =>
-						scene.scene.remove(mesh)
-					)
-				} else {
-					scene.scene.remove(viewer.lineMeshes)
-				}
-			}
-
+		console.log("🗑️ Removing old skeleton...")
+		skeletonViewers.forEach((viewer) => {
+			// Remove only the main parent group (newParent) which contains sphereMeshes and lineMeshes
 			// Properly dispose of newParent and remove it from the scene
 			if (viewer.newParent) {
 				viewer.newParent.traverse((child) => {
@@ -100,6 +75,12 @@ async function initialize() {
 				// Optional: Set newParent to null to avoid references
 				viewer.newParent = null
 			}
+
+			// Cleanup descriptors separately if needed (though loadSkeleton also does this)
+			viewer.cleanupDescriptors(true);
+
+			// Remove any lingering HTML elements like the distance panel
+			viewer.removeExistingHTMLPanel();
 		})
 
 		console.log("✅ Old skeleton removed successfully!")

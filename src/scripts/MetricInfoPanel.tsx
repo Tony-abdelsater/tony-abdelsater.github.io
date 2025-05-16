@@ -1,9 +1,23 @@
-import { createEffect } from "solid-js"
+import { createEffect, createSignal } from "solid-js"
 import { currentMetricInfo } from "./store"
 
 export function MetricInfoPanel() {
-    // Get the current metric information from the store
-    const info = currentMetricInfo()
+    // Create a local signal that tracks the current metric info
+    const [localInfo, setLocalInfo] = createSignal({
+        title: '',
+        description: '',
+        calculation: '',
+        quality: '',
+        interpretation: '',
+        unit: ''
+    });
+    
+    // Update local state whenever the store changes
+    createEffect(() => {
+        const info = currentMetricInfo();
+        console.log("MetricInfoPanel: Metric info updated", info);
+        setLocalInfo(info);
+    });
     
     return (
         <div 
@@ -16,32 +30,32 @@ export function MetricInfoPanel() {
                 line-height: 1.4;
             "
         >
-            {info.title ? (
+            {localInfo().title ? (
                 <>
                     <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 16px; color: #333;">
-                        What is {info.title}?
+                        What is {localInfo().title}?
                     </h4>
-                    <p style="margin-top: 0; margin-bottom: 10px;">{info.description}</p>
+                    <p style="margin-top: 0; margin-bottom: 10px;">{localInfo().description}</p>
                     
                     <h4 style="margin-top: 12px; margin-bottom: 8px; font-size: 16px; color: #333;">
                         How is it calculated?
                     </h4>
-                    <p style="margin-top: 0; margin-bottom: 10px;">{info.calculation}</p>
+                    <p style="margin-top: 0; margin-bottom: 10px;">{localInfo().calculation}</p>
                     
                     <h4 style="margin-top: 12px; margin-bottom: 8px; font-size: 16px; color: #333;">
                         To which motion quality it is related?
                     </h4>
-                    <p style="margin-top: 0; margin-bottom: 10px;">{info.quality}</p>
+                    <p style="margin-top: 0; margin-bottom: 10px;">{localInfo().quality}</p>
                     
                     <h4 style="margin-top: 12px; margin-bottom: 8px; font-size: 16px; color: #333;">
                         How it can be interpreted?
                     </h4>
-                    <p style="margin-top: 0; margin-bottom: 10px; white-space: pre-line;">{info.interpretation}</p>
+                    <p style="margin-top: 0; margin-bottom: 10px; white-space: pre-line;">{localInfo().interpretation}</p>
                     
                     <h4 style="margin-top: 12px; margin-bottom: 8px; font-size: 16px; color: #333;">
                         Measurement unit
                     </h4>
-                    <p style="margin-top: 0; margin-bottom: 0;">{info.unit}</p>
+                    <p style="margin-top: 0; margin-bottom: 0;">{localInfo().unit}</p>
                 </>
             ) : (
                 <p style="margin: 0; color: #666;">Select a metric to see information about it.</p>
