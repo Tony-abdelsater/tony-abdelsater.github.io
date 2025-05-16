@@ -19,7 +19,7 @@ import {
 } from "./store"
 import { Checkbox } from "@kobalte/core/checkbox"
 import { MetricAnalysisPanel } from "./MetricAnalysisPanel.tsx"
-import { MetricInfoPanel } from "./MetricInfoPanel" // <-- Add this import
+import { MetricInfoPanel } from "./MetricInfoPanel"
 
 export function CollapsibleMotionAnalysis() {
     const [arrow, setArrow] = createSignal("\u25BC")
@@ -43,7 +43,8 @@ export function CollapsibleMotionAnalysis() {
         { value: "none", label: "None" },
         { value: "speed", label: "Speed/Velocity" },
         { value: "acceleration", label: "Acceleration" },
-        { value: "jerk", label: "Jerk" }
+        { value: "jerk", label: "Jerk" },
+        { value: "rula", label: "RULA Ergonomics" }
     ]
 
     // Handle metric selection changes
@@ -169,10 +170,15 @@ export function CollapsibleMotionAnalysis() {
     
     const handleTemporalMetricChange = (event) => {
         const value = event.target.value
-        console.log("Temporal Metric Changed to:", value); // Log selection
+        console.log("Temporal Metric Changed to:", value)
         setActiveTemporalDescriptor(value)
-        console.log("Active Temporal Descriptor:", activeTemporalDescriptor()); // Log state after update
+        console.log("Active Temporal Descriptor:", activeTemporalDescriptor())
         setMotionMetric(value)
+        
+        // For RULA, we want to see the visualization plots, so ensure speed plot is shown
+        if (value === "rula") {
+            setShowSpeedPlot(true)
+        }
         
         // Ensure the metric info panel is shown when a metric is selected
         if (value !== "none") {
@@ -206,6 +212,15 @@ export function CollapsibleMotionAnalysis() {
                 quality: "Jerk relates to movement quality, particularly smoothness and control.",
                 interpretation: "> Low Jerk: indicates smooth, well-controlled movement.\n> High Jerk: suggests abrupt, potentially less controlled or more expressive movement.",
                 unit: "Meters/centimeters per second cubed"
+            })
+        } else if (value === "rula") {
+            setCurrentMetricInfo({
+                title: "RULA Ergonomic Assessment",
+                description: "Rapid Upper Limb Assessment (RULA) is an ergonomic assessment tool used to evaluate the posture, force, and movement associated with sedentary tasks.",
+                calculation: "Scores are calculated based on joint angles and posture, then combined into a final risk score from 1-7.",
+                quality: "RULA provides insight into ergonomic risk factors and potential for musculoskeletal disorders.",
+                interpretation: "> Scores 1-2 (Green): Acceptable posture.\n> Scores 3-4 (Yellow): Further investigation needed.\n> Scores 5-6 (Orange): Investigation and changes required soon.\n> Score 7 (Red): Immediate investigation and changes required.",
+                unit: "RULA risk score (1-7)"
             })
         } else {
             setCurrentMetricInfo({

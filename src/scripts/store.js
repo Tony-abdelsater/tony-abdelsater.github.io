@@ -107,6 +107,21 @@ const [jerkDataY, setJerkDataY] = createSignal([])
 const [jerkDataZ, setJerkDataZ] = createSignal([])
 const [jerkDataNorm, setJerkDataNorm] = createSignal([])
 
+// RULA score signals
+export const [rulaScores, setRulaScores] = createSignal({
+	trunk: null,
+	upperArmLeft: null,
+	lowerArmLeft: null,
+	wristLeft: null,
+	upperArmRight: null,
+	lowerArmRight: null,
+	wristRight: null,
+	neck: null,
+	leg: null
+});
+
+export const [rulaFinalScore, setRulaFinalScore] = createSignal(null);
+
 // Geometric descriptor state
 const [activeGeometricDescriptor, setActiveGeometricDescriptor] = createSignal('none')
 const [activeSpaceDescriptor, setActiveSpaceDescriptor] = createSignal('none')
@@ -317,12 +332,11 @@ export {
 	jerkDataZ,
 	setJerkDataZ,
 	jerkDataNorm,
-	setJerkDataNorm
+	setJerkDataNorm,
 	
-	// isXPressed,
-	// isYPressed,
-	// isZPressed,
-	// setXPressed,
-	// setYPressed,
-	// setZPressed
+	// New exports for RULA (already exported with export const above)
+	// rulaScores,
+	// setRulaScores,
+	// rulaFinalScore,
+	// setRulaFinalScore
 }

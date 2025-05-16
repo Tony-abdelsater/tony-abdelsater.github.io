@@ -30,8 +30,17 @@ import {
 	setJerkDataX,
 	setJerkDataY,
 	setJerkDataZ,
-	setJerkDataNorm
+	setJerkDataNorm,
+	setRulaScores,
+	setRulaFinalScore
 } from "./store.js"
+
+const rulaColorMap = {
+  1: 0x00ff00, // green
+  2: 0xffff00, // yellow
+  3: 0xff9900, // orange
+  4: 0xff0000  // red
+};
 
 class SkeletonViewer {
 	constructor(scene) {
@@ -40,6 +49,7 @@ class SkeletonViewer {
 		this.action = null
 		this.globalResult = null
 		this.animationClip = null
+		this.bones = {} // Initialize bones object for RULA calculations
 
 		this.sphereMeshes = new THREE.Group()
 		this.lineMeshes = new THREE.Group()
@@ -247,7 +257,8 @@ class SkeletonViewer {
 			return /end$/.test(str)
 		}
 
-		
+		// Clear the bones object before populating it
+		this.bones = {}
 
 		// Περιμένουμε να ολοκληρωθούν όλες οι προσθήκες σφαιρών
 		await Promise.all(
@@ -258,6 +269,9 @@ class SkeletonViewer {
 					const previousBoneName = array[index - 1].name
 					bone.name = `${previousBoneName}_end`
 				}
+
+				// Store bone reference in the bones object for RULA calculations
+				this.bones[bone.name] = bone;
 
 				if (
 					bone.name === "LeftFootToe_end" ||
@@ -2579,6 +2593,586 @@ class SkeletonViewer {
 		if (this.distanceTrackingActive && this.distanceTracker) {
 			this.initDistanceTracking();
 		}
+	}
+
+	computeAngleBetween(jointA, jointB, jointC) {
+		const A = this.getJointWorldPosition(jointA)
+		const B = this.getJointWorldPosition(jointB)
+		const C = this.getJointWorldPosition(jointC)
+
+		if (!A || !B || !C) return null
+
+		const AB = new THREE.Vector3().subVectors(A, B).normalize()
+		const CB = new THREE.Vector3().subVectors(C, B).normalize()
+		return THREE.MathUtils.radToDeg(AB.angleTo(CB))
+	}
+	
+	getRULAScore() {
+		const trunkAngle = this.computeTrunkAngle();
+		const upperArmLeftAngle = this.computeUpperArmAngleLeft();
+		const upperArmRightAngle = this.computeUpperArmAngleRight();
+		const neckAngle = this.computeNeckAngle();
+		const wristAngleLeft = this.computeWristAngleLeft();
+		const wristAngleRight = this.computeWristAngleRight();
+		const lowerArmLeftAngle = this.computeLowerArmAngleLeft();
+		const lowerArmRightAngle = this.computeLowerArmAngleRight();
+
+		const safeScore = (angle, thresholds) => {
+			if (angle == null || isNaN(angle)) return null;
+			for (const [threshold, score] of thresholds) {
+				if (angle > threshold) return score;
+			}
+			return thresholds[thresholds.length - 1][1];
+		};
+
+		let lowerArmLeftScore = safeScore(lowerArmLeftAngle, [[100, 2], [60, 1], [0, 1], [-Infinity, 1]]);
+		let lowerArmRightScore = safeScore(lowerArmRightAngle, [[100, 2], [60, 1], [0, 1], [-Infinity, 1]]);
+
+		const midlineX = this.bones["Hips"]?.position.x ?? 0;
+		const leftHandX = this.bones["LeftHand"]?.position.x;
+		const leftShoulderX = this.bones["LeftShoulder"]?.position.x;
+		const rightHandX = this.bones["RightHand"]?.position.x;
+		const rightShoulderX = this.bones["RightShoulder"]?.position.x;
+
+		if (this.isAcrossMidline(leftHandX, leftShoulderX, midlineX)) lowerArmLeftScore += 1;
+		if (this.isAcrossMidline(rightHandX, rightShoulderX, midlineX)) lowerArmRightScore += 1;
+
+		lowerArmLeftScore = Math.min(lowerArmLeftScore, 3);
+		lowerArmRightScore = Math.min(lowerArmRightScore, 3);
+
+		return {
+			trunk: trunkAngle != null ? {
+				score: safeScore(trunkAngle, [[60, 4], [20, 3], [0, 2], [-Infinity, 1]]),
+				angle: trunkAngle.toFixed(1)
+			} : null,
+
+			upperArmLeft: upperArmLeftAngle != null ? {
+				score: safeScore(upperArmLeftAngle, [[90, 4], [45, 3], [20, 2], [-Infinity, 1]]),
+				angle: upperArmLeftAngle.toFixed(1)
+			} : null,
+
+			upperArmRight: upperArmRightAngle != null ? {
+				score: safeScore(upperArmRightAngle, [[90, 4], [45, 3], [20, 2], [-Infinity, 1]]),
+				angle: upperArmRightAngle.toFixed(1)
+			} : null,
+
+			lowerArmLeft: lowerArmLeftAngle != null ? {
+				score: lowerArmLeftScore,
+				angle: lowerArmLeftAngle.toFixed(1)
+			} : null,
+
+			lowerArmRight: lowerArmRightAngle != null ? {
+				score: lowerArmRightScore,
+				angle: lowerArmRightAngle.toFixed(1)
+			} : null,
+
+			neck: neckAngle != null ? {
+				score: safeScore(neckAngle, [[20, 4], [10, 3], [0, 2], [-Infinity, 1]]),
+				angle: neckAngle.toFixed(1)
+			} : null,
+
+			wristLeft: wristAngleLeft != null ? {
+				score: safeScore(wristAngleLeft, [[15, 3], [0, 2], [-Infinity, 1]]),
+				angle: wristAngleLeft.toFixed(1)
+			} : null,
+
+			wristRight: wristAngleRight != null ? {
+				score: safeScore(wristAngleRight, [[15, 3], [0, 2], [-Infinity, 1]]),
+				angle: wristAngleRight.toFixed(1)
+			} : null,
+
+			leg: {
+				score: this.computeLegScore()
+			}
+		};
+	}
+
+	getEndRULA() {
+		const trunkAngle = this.computeTrunkAngle();
+		const neckAngle = this.computeNeckAngle();
+		const upperArmLeftAngle = this.computeUpperArmAngleLeft();
+		const upperArmRightAngle = this.computeUpperArmAngleRight();
+		const lowerArmLeftAngle = this.computeLowerArmAngleLeft();
+		const lowerArmRightAngle = this.computeLowerArmAngleRight();
+		const wristAngleLeft = this.computeWristAngleLeft();
+		const wristAngleRight = this.computeWristAngleRight();
+		const legScore = this.computeLegScore();
+
+		const safeScore = (angle, thresholds) => {
+			if (angle == null || isNaN(angle)) return 0;
+			for (const [threshold, score] of thresholds) {
+				if (angle > threshold) return score;
+			}
+			return thresholds[thresholds.length - 1][1];
+		};
+
+		let lowerArmLeftScore = safeScore(lowerArmLeftAngle, [[100, 2], [60, 1], [0, 1], [-Infinity, 1]]);
+		let lowerArmRightScore = safeScore(lowerArmRightAngle, [[100, 2], [60, 1], [0, 1], [-Infinity, 1]]);
+
+		const midlineX = this.bones["Hips"]?.position.x ?? 0;
+		const leftHandX = this.bones["LeftHand"]?.position.x;
+		const leftShoulderX = this.bones["LeftShoulder"]?.position.x;
+		const rightHandX = this.bones["RightHand"]?.position.x;
+		const rightShoulderX = this.bones["RightShoulder"]?.position.x;
+
+		if (this.isAcrossMidline(leftHandX, leftShoulderX, midlineX)) lowerArmLeftScore += 1;
+		if (this.isAcrossMidline(rightHandX, rightShoulderX, midlineX)) lowerArmRightScore += 1;
+
+		lowerArmLeftScore = Math.min(lowerArmLeftScore, 3);
+		lowerArmRightScore = Math.min(lowerArmRightScore, 3);
+
+		const scores = {
+			trunk: {
+				score: safeScore(trunkAngle, [[60, 4], [20, 3], [0, 2], [-Infinity, 1]]),
+				angle: trunkAngle?.toFixed(1)
+			},
+			neck: {
+				score: safeScore(neckAngle, [[20, 4], [10, 3], [0, 2], [-Infinity, 1]]),
+				angle: neckAngle?.toFixed(1)
+			},
+			leg: { score: legScore },
+
+			upperArmLeft: {
+				score: safeScore(upperArmLeftAngle, [[90, 4], [45, 3], [20, 2], [-Infinity, 1]]),
+				angle: upperArmLeftAngle?.toFixed(1)
+			},
+			lowerArmLeft: lowerArmLeftAngle != null ? {
+				score: lowerArmLeftScore,
+				angle: lowerArmLeftAngle.toFixed(1)
+			} : null,
+			wristLeft: {
+				score: safeScore(wristAngleLeft, [[15, 3], [0, 2], [-Infinity, 1]]),
+				angle: wristAngleLeft?.toFixed(1)
+			},
+
+			upperArmRight: {
+				score: safeScore(upperArmRightAngle, [[90, 4], [45, 3], [20, 2], [-Infinity, 1]]),
+				angle: upperArmRightAngle?.toFixed(1)
+			},
+			lowerArmRight: lowerArmRightAngle != null ? {
+				score: lowerArmRightScore,
+				angle: lowerArmRightAngle.toFixed(1)
+			} : null,
+			wristRight: {
+				score: safeScore(wristAngleRight, [[15, 3], [0, 2], [-Infinity, 1]]),
+				angle: wristAngleRight?.toFixed(1)
+			}
+		};
+
+		const leftArmScore = scores.upperArmLeft.score + scores.lowerArmLeft.score + scores.wristLeft.score;
+		const rightArmScore = scores.upperArmRight.score + scores.lowerArmRight.score + scores.wristRight.score;
+		const wristAndArmScore = Math.min(Math.max(leftArmScore, rightArmScore), 8);
+
+		const neckTrunkLegScore = Math.min(
+			scores.trunk.score + scores.neck.score + scores.leg.score, 7
+		);
+
+		const tableC = [
+			[1, 2, 3, 3, 4, 5, 5],
+			[2, 2, 3, 4, 4, 5, 5],
+			[3, 3, 3, 4, 4, 5, 6],
+			[3, 3, 3, 4, 5, 6, 6],
+			[4, 4, 4, 5, 6, 7, 7],
+			[4, 4, 5, 6, 6, 7, 7],
+			[5, 5, 6, 6, 7, 7, 7],
+			[5, 5, 6, 7, 7, 7, 7]
+		];
+
+		const finalScore = tableC[wristAndArmScore - 1][neckTrunkLegScore - 1];
+
+		return {
+			...scores,
+			wristAndArmScore,
+			neckTrunkLegScore,
+			finalScore
+		};
+	}
+
+	colorJoint(jointName, color) {
+		const index = this.jointIndex?.[jointName];
+		if (index === undefined) {
+			console.warn(`Joint ${jointName} not found in jointIndex`);
+			return;
+		}
+
+		const mesh = this.sphereMeshes?.children?.[index];
+		if (!mesh) {
+			console.warn(`Mesh not found for joint ${jointName} at index ${index}`);
+			return;
+		}
+
+		mesh.material.color.set(color);
+	}
+
+	colorBone(jointA, jointB, color) {
+		const indexA = this.jointIndex[jointA];
+		const indexB = this.jointIndex[jointB];
+		if (indexA === undefined || indexB === undefined) return;
+
+		const meshA = this.sphereMeshes.children[indexA];
+		const meshB = this.sphereMeshes.children[indexB];
+		if (!meshA || !meshB) return;
+
+		const posA = meshA.position;
+		const posB = meshB.position;
+
+		this.lineMeshes.children.forEach(line => {
+			const start = new THREE.Vector3().fromArray(line.geometry.attributes.instanceStart.array.slice(0, 3));
+			const end = new THREE.Vector3().fromArray(line.geometry.attributes.instanceEnd.array.slice(0, 3));
+
+			const distMatch = (start.distanceTo(posA) < 1 && end.distanceTo(posB) < 1) ||
+							  (start.distanceTo(posB) < 1 && end.distanceTo(posA) < 1);
+
+			if (distMatch) {
+				if (Array.isArray(line.material)) {
+					line.material.forEach(m => m.color.set(color));
+				} else {
+					line.material.color.set(color);
+				}
+			}
+		});
+	}
+
+	isAcrossMidline(handX, shoulderX, midlineX) {
+		return (shoulderX < midlineX && handX > midlineX) ||
+			   (shoulderX > midlineX && handX < midlineX);
+	}
+
+	computeLowerArmAngleLeft() {
+		const elbow = this.bones["LeftForeArm"];
+		const wrist = this.bones["LeftHand"];
+		if (!elbow || !wrist) return 0;
+
+		elbow.updateMatrixWorld(true);
+		wrist.updateMatrixWorld(true);
+
+		const elbowPos = new THREE.Vector3();
+		const wristPos = new THREE.Vector3();
+		elbow.getWorldPosition(elbowPos);
+		wrist.getWorldPosition(wristPos);
+
+		const vector = new THREE.Vector3().subVectors(wristPos, elbowPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, -1, 0)); // vertical downward reference
+		return THREE.MathUtils.radToDeg(angle);
+	}
+
+	computeLowerArmAngleRight() {
+		const elbow = this.bones["RightForeArm"];
+		const wrist = this.bones["RightHand"];
+		if (!elbow || !wrist) return 0;
+
+		elbow.updateMatrixWorld(true);
+		wrist.updateMatrixWorld(true);
+
+		const elbowPos = new THREE.Vector3();
+		const wristPos = new THREE.Vector3();
+		elbow.getWorldPosition(elbowPos);
+		wrist.getWorldPosition(wristPos);
+
+		const vector = new THREE.Vector3().subVectors(wristPos, elbowPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, -1, 0)); // vertical downward reference
+		return THREE.MathUtils.radToDeg(angle);
+	}
+
+	computeTrunkAngle() {
+		const hips = this.bones["Hips"];
+		const spine = this.bones["Spine"];
+		if (!hips || !spine) return 0;
+	
+		// 🔧 Force matrix update
+		hips.updateMatrixWorld(true);
+		spine.updateMatrixWorld(true);
+	
+		const hipsPos = new THREE.Vector3();
+		const spinePos = new THREE.Vector3();
+		hips.getWorldPosition(hipsPos);
+		spine.getWorldPosition(spinePos);
+	
+		const vector = new THREE.Vector3().subVectors(spinePos, hipsPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, 1, 0)); // vertical reference
+		return THREE.MathUtils.radToDeg(angle);
+	}
+	
+	computeUpperArmAngleLeft() {
+		const shoulder = this.bones["LeftShoulder"];
+		const elbow = this.bones["LeftForeArm"];
+		if (!shoulder || !elbow) return 0;
+	
+		shoulder.updateMatrixWorld(true);
+		elbow.updateMatrixWorld(true);
+	
+		const shoulderPos = new THREE.Vector3();
+		const elbowPos = new THREE.Vector3();
+		shoulder.getWorldPosition(shoulderPos);
+		elbow.getWorldPosition(elbowPos);
+	
+		const vector = new THREE.Vector3().subVectors(elbowPos, shoulderPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, -1, 0));
+		return THREE.MathUtils.radToDeg(angle);
+	}
+	
+	computeUpperArmAngleRight() {
+		const shoulder = this.bones["RightShoulder"];
+		const elbow = this.bones["RightForeArm"];
+		if (!shoulder || !elbow) return 0;
+	
+		shoulder.updateMatrixWorld(true);
+		elbow.updateMatrixWorld(true);
+	
+		const shoulderPos = new THREE.Vector3();
+		const elbowPos = new THREE.Vector3();
+		shoulder.getWorldPosition(shoulderPos);
+		elbow.getWorldPosition(elbowPos);
+	
+		const vector = new THREE.Vector3().subVectors(elbowPos, shoulderPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, -1, 0));
+		return THREE.MathUtils.radToDeg(angle);
+	}
+
+	computeNeckAngle() {
+		const neck = this.bones["Neck"];
+		const head = this.bones["Head"];
+		if (!neck || !head) return 0;
+	
+		neck.updateMatrixWorld(true);
+		head.updateMatrixWorld(true);
+	
+		const neckPos = new THREE.Vector3();
+		const headPos = new THREE.Vector3();
+		neck.getWorldPosition(neckPos);
+		head.getWorldPosition(headPos);
+	
+		const vector = new THREE.Vector3().subVectors(headPos, neckPos);
+		const angle = vector.angleTo(new THREE.Vector3(0, 1, 0)); // reference to vertical
+		return THREE.MathUtils.radToDeg(angle);
+	}
+	
+	getNeckScore() {
+		const angle = this.computeNeckAngle();
+	
+		let score =
+			angle > 20 ? 3 :
+			angle > 10 ? 2 :
+			angle > 0 ? 1 :
+			0;
+	
+		return {
+			score: score + 1, // RULA starts from 1
+			angle: angle.toFixed(1)
+		};
+	}
+	
+	computeWristAngleLeft() {
+		const forearm = this.bones["LeftForeArm"];
+		const hand = this.bones["LeftHand"];
+
+		if (!forearm || !hand) return 0;
+
+		// Ensure matrices are updated
+		forearm.updateMatrixWorld(true);
+		hand.updateMatrixWorld(true);
+
+		// Get relative quaternion: hand in forearm's local space
+		const forearmInv = new THREE.Matrix4().copy(forearm.matrixWorld).invert();
+		const handMatrixLocal = new THREE.Matrix4().multiplyMatrices(forearmInv, hand.matrixWorld);
+
+		const handQuatLocal = new THREE.Quaternion().setFromRotationMatrix(handMatrixLocal);
+
+		// Convert quaternion to Euler angles
+		const euler = new THREE.Euler().setFromQuaternion(handQuatLocal, 'XYZ');
+
+		// The wrist flexion/extension usually happens on the X axis
+		const flexionDeg = THREE.MathUtils.radToDeg(euler.x);
+
+		return Math.abs(flexionDeg); // use abs so flexion and extension both count
+	}
+
+	computeWristAngleRight() {
+		const forearm = this.bones["RightForeArm"];
+		const hand = this.bones["RightHand"];
+
+		if (!forearm || !hand) return 0;
+
+		// Ensure matrices are updated
+		forearm.updateMatrixWorld(true);
+		hand.updateMatrixWorld(true);
+
+		// Get relative quaternion: hand in forearm's local space
+		const forearmInv = new THREE.Matrix4().copy(forearm.matrixWorld).invert();
+		const handMatrixLocal = new THREE.Matrix4().multiplyMatrices(forearmInv, hand.matrixWorld);
+
+		const handQuatLocal = new THREE.Quaternion().setFromRotationMatrix(handMatrixLocal);
+
+		// Convert quaternion to Euler angles
+		const euler = new THREE.Euler().setFromQuaternion(handQuatLocal, 'XYZ');
+
+		// The wrist flexion/extension usually happens on the X axis
+		const flexionDeg = THREE.MathUtils.radToDeg(euler.x);
+
+		return Math.abs(flexionDeg); // use abs so flexion and extension both count
+	}
+
+	getWristScore() {
+		const angleL = this.computeWristAngleLeft();
+		const angleR = this.computeWristAngleRight();
+		const angle = Math.max(angleL, angleR);
+
+		let score =
+			angle > 15 ? 2 :
+			angle > 0  ? 1 :
+			0;
+
+		return {
+			score: score + 1, // RULA starts at 1
+			angle: angle.toFixed(1)
+		};
+	}
+
+	computeLegScore() {
+		const leftThigh = this.bones["LeftUpLeg"];
+		const leftShin = this.bones["LeftLeg"];
+		const rightThigh = this.bones["RightUpLeg"];
+		const rightShin = this.bones["RightLeg"];
+
+		if (!leftThigh || !leftShin || !rightThigh || !rightShin) return 1;
+
+		// Update world matrices
+		leftThigh.updateMatrixWorld(true);
+		leftShin.updateMatrixWorld(true);
+		rightThigh.updateMatrixWorld(true);
+		rightShin.updateMatrixWorld(true);
+
+		// Get world positions
+		const leftThighPos = new THREE.Vector3();
+		const leftShinPos = new THREE.Vector3();
+		leftThigh.getWorldPosition(leftThighPos);
+		leftShin.getWorldPosition(leftShinPos);
+
+		const rightThighPos = new THREE.Vector3();
+		const rightShinPos = new THREE.Vector3();
+		rightThigh.getWorldPosition(rightThighPos);
+		rightShin.getWorldPosition(rightShinPos);
+
+		// Compute direction vectors
+		const leftVec = new THREE.Vector3().subVectors(leftShinPos, leftThighPos).normalize();
+		const rightVec = new THREE.Vector3().subVectors(rightShinPos, rightThighPos).normalize();
+		const vertical = new THREE.Vector3(0, -1, 0); // downward
+
+		// Compute deviation from vertical
+		const leftAngle = THREE.MathUtils.radToDeg(leftVec.angleTo(vertical));
+		const rightAngle = THREE.MathUtils.radToDeg(rightVec.angleTo(vertical));
+
+		// If either leg deviates too much or is asymmetric
+		if (leftAngle > 15 || rightAngle > 15 || Math.abs(leftAngle - rightAngle) > 10) {
+			return 2;
+		}
+
+		return 1;
+	}
+
+	update(delta) {
+		// Update mixer (if there is an animation running)
+		if (this.mixer) {
+			this.mixer.update(delta);
+		}
+
+		try {
+			this.updateSpherePositions();
+			this.updateLinePositions();
+	
+			const scores = this.getRULAScore(); // <-- Your own RULA score computation
+			
+			const rula = this.getRULAScore();           // contains raw component scores
+			const final = this.getEndRULA();
+
+			setRulaScores(rula);                        // Update Solid state
+			setRulaFinalScore(final.finalScore);
+
+			// Reset colors to default
+			this.sphereMeshes.children.forEach(mesh => {
+				mesh.material.color.set(0x145e9f);
+			});
+
+			// Helper: Get color from score
+			const getColor = score => rulaColorMap[score] || 0x145e9f;
+
+			// Neck
+			if (rula.neck) {
+				const color = getColor(rula.neck.score);
+				this.colorJoint("Neck", color);
+				this.colorJoint("Head", color);
+				this.colorBone("Neck", "Head", color);
+			}
+
+			// Trunk
+			if (rula.trunk) {
+				const color = getColor(rula.trunk.score);
+				this.colorJoint("Hips", color);
+				this.colorJoint("Spine", color);
+				this.colorBone("Hips", "Spine", color);
+			}
+
+			// Upper Arm Left
+			if (rula.upperArmLeft) {
+				const color = getColor(rula.upperArmLeft.score);
+				this.colorJoint("LeftShoulder", color);
+				this.colorJoint("LeftForeArm", color);
+				this.colorBone("LeftShoulder", "LeftForeArm", color);
+			}
+
+			// Upper Arm Right
+			if (rula.upperArmRight) {
+				const color = getColor(rula.upperArmRight.score);
+				this.colorJoint("RightShoulder", color);
+				this.colorJoint("RightForeArm", color);
+				this.colorBone("RightShoulder", "RightForeArm", color);
+			}
+
+			if (rula.lowerArmLeft) {
+				const color = getColor(rula.lowerArmLeft.score);
+				this.colorJoint("LeftForeArm", color);
+				this.colorJoint("LeftHand", color);
+				this.colorBone("LeftForeArm", "LeftHand", color);
+			}
+
+			if (rula.lowerArmRight) {
+				const color = getColor(rula.lowerArmRight.score);
+				this.colorJoint("RightForeArm", color);
+				this.colorJoint("RightHand", color);
+				this.colorBone("RightForeArm", "RightHand", color);
+			}
+
+			// Legs
+			if (rula.leg) {
+				const color = getColor(rula.leg.score);
+				this.colorJoint("LeftUpLeg", color);
+				this.colorJoint("LeftLeg", color);
+				this.colorBone("LeftUpLeg", "LeftLeg", color);
+
+				this.colorJoint("RightUpLeg", color);
+				this.colorJoint("RightLeg", color);
+				this.colorBone("RightUpLeg", "RightLeg", color);
+
+				this.colorJoint("LeftFoot", color);
+				this.colorJoint("RightFoot", color);
+				this.colorBone("LeftLeg", "LeftFoot", color);
+				this.colorBone("RightLeg", "RightFoot", color);
+			}
+
+			// ... rest of existing update method ...
+		} catch (error) {
+			console.error("Failed to update skeleton:", error);
+		}
+	}
+
+	// Helper method to get world position of a joint by name
+	getJointWorldPosition(jointName) {
+		const bone = this.bones[jointName];
+		if (!bone) return null;
+		
+		const worldPos = new THREE.Vector3();
+		bone.getWorldPosition(worldPos);
+		return worldPos;
 	}
 }
 

@@ -24,6 +24,7 @@ import { createEffect, Show } from "solid-js"
 import { ResizeEverything } from "./ResizeEverything"
 import { SpeedPlot } from "./SpeedPlot"
 import { MetricInfoPanel } from "./MetricInfoPanel"
+import RulaScorePanel from "./RULAScorePanel"
 
 function toggleAxis(axis) {
     if (axis === "x") return "X"
@@ -37,6 +38,7 @@ function getMetricTitle(metric) {
         case 'speed': return 'Speed Analysis';
         case 'acceleration': return 'Acceleration Analysis';
         case 'jerk': return 'Jerk Analysis';
+        case 'rula': return 'RULA Ergonomic Assessment';
         default: return 'Temporal Analysis';
     }
 }
@@ -120,7 +122,14 @@ const SplitterV_Plots = () => {
                             <span class="selectedRowColor">{getMetricTitle(motionMetric)}</span> of {" "}
                             <span class="selectedRowColor">{selectedJoint()}</span>
                         </div>
-                        <SpeedPlot />
+                        {/* Render RulaScorePanel or SpeedPlot based on selected metric */}
+                        {motionMetric() === 'rula' ? (
+                            <div style={{ width: "100%", height: "calc(100% - 30px)", padding: "10px", "overflow-y": "auto" }}>
+                                <RulaScorePanel />
+                            </div>
+                        ) : (
+                            <SpeedPlot />
+                        )}
                     </Splitter.Panel>
                 </>
             )}
