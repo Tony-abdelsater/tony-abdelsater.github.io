@@ -840,7 +840,6 @@ class SkeletonViewer {
         setJerkDataZ(jerkZ)
         setJerkDataNorm(jerkNorm)
     }
-
 	getTimeSeries(jointName = "RightArm") {
 		const baseIndex = this.boneIndex[selectedJoint()] * 2 
 		const index = this.jointIndex[selectedJoint()]
@@ -901,10 +900,17 @@ class SkeletonViewer {
 			anglesZ.push(THREE.MathUtils.radToDeg(euler.z))
 		}
 
-		// Calculate both metrics regardless of current selection
+		// Calculate metrics regardless of current selection
 		this.calculateSpeed()
 		this.calculateAcceleration()
 		this.calculateJerk()
+		
+		// Calculate Weight Effort if it's the active effort descriptor
+		import("./store.js").then(({ activeEffortDescriptor }) => {
+			if (activeEffortDescriptor() === 'weight') {
+				this.calculateWeightEffort();
+			}
+		});
 
 		return [positionsX, positionsY, positionsZ, anglesX, anglesY, anglesZ]
 	}
@@ -1027,6 +1033,14 @@ class SkeletonViewer {
 				this.sphereMeshes.children[
 					this.jointIndex[selectedJoint()]
 				].material.color.set("red")
+
+				// Update the distance info panel title dynamically
+				if (this.distanceDisplay) {
+					const titleElement = this.distanceDisplay.querySelector('.distance-tracker-header');
+					if (titleElement) {
+						titleElement.textContent = `Distance: ${selectedJoint()}`;
+					}
+				}
 			}
 		})
 	}
@@ -1511,6 +1525,7 @@ class SkeletonViewer {
 		}
 		
 		this.activeDescriptor = type;
+
 		
 		// Then show the selected descriptor, creating it if needed
 		if (type === 'box') {
@@ -1556,41 +1571,6 @@ class SkeletonViewer {
 			this.newParent.add(this.descriptorsGroup);
 		}
 	}
-	
-	// Modified update method to ensure descriptors follow skeleton
-	update(delta) {
-		// Update mixer (if there is an animation running)
-		if (this.mixer) {
-			this.mixer.update(delta);
-		}
-	
-		try {
-			this.updateSpherePositions();
-			this.updateLinePositions();
-			
-			// Only update geometric descriptors when active
-			if (this.activeDescriptor !== 'none') {
-				this.updateGeometricDescriptors();
-				
-				// Update center of mass if it's active
-				if (this.activeDescriptor === 'com') {
-					this.updateCenterOfMass();
-				}
-				
-				// Update balance visualization if it's active
-				if (this.activeDescriptor === 'balance') {
-					this.updateBalance();
-				}
-				
-				// Update distance tracking if it's active
-				if (this.activeDescriptor === 'distance' && this.distanceTrackingActive) {
-					this.updateDistanceTracking();
-				}
-			}
-		} catch (error) {
-			console.error("Failed to update skeleton:", error);
-		}
-	}
 
 	setAnimationTime(timeInSeconds) {
 		if (this.mixer) {
@@ -1604,7 +1584,13 @@ class SkeletonViewer {
 				this.mixer.setTime(timeInSeconds)
 				this.mixer.timeScale = 0
 			}
-			// this.sphereMeshes.rotation.set(0, timeInSeconds * 10, 0) // Περιστροφή 90° στον X άξονα
+
+			// Reset total distance to zero when the frame is returned to zero
+			if (timeInSeconds === 0) {
+				this.resetDistanceTracking();
+				console.log("Total distance reset to zero as frame returned to zero.");
+			}
+			// this.sphereMeshes.rotation.set(0, timeInSeconds * 10, 0) 
 		}
 	}
 
@@ -1900,7 +1886,6 @@ class SkeletonViewer {
 		// Normalize by the total weight (equation 13 from the requirements)
 		if (totalWeight > 0) {
 			comPosition.divideScalar(totalWeight);
-			return comPosition;
 		} else {
 			return null;
 		}
@@ -2234,10 +2219,10 @@ class SkeletonViewer {
 				Distance: ${jointName}
 			</div>
 			<div id="distance-value" style="padding: 4px; font-size: 16px;">
-				Total: 0.00 units
+				Total: 0.00 cm
 			</div>
 			<div id="speed-value" style="padding: 4px; color: rgb(100, 200, 255);">
-				Speed: 0.00 units/s
+				Speed: 0.00 cm/s
 			</div>
 			<div style="padding: 4px; font-size: 11px;">
 				Speed:
@@ -2477,69 +2462,54 @@ class SkeletonViewer {
 		if (!this.distanceTrackingActive || !this.distanceTracker) {
 			return;
 		}
-		
+
 		// Use the currently selected joint
 		const currentJointName = selectedJoint();
 		const jointIndex = this.jointIndex[currentJointName] || 0;
-		
+
 		if (!this.sphereMeshes.children[jointIndex]) {
+			console.error(`Selected joint ${currentJointName} not found for distance tracking`);
 			return;
 		}
-		
+
 		// Get current animation time to detect loops
 		const currentAnimationTime = this.mixer ? this.mixer.time : 0;
 		const isPlaying = playPressed();
-		
+
 		// Check if animation has looped (current time is significantly less than last time)
-		// This happens when animation restarts from the beginning
 		if (this.lastAnimationTime > 0 && 
-		    ((currentAnimationTime < this.lastAnimationTime && 
-		    (this.lastAnimationTime - currentAnimationTime) > 0.5) ||
-		    // Also reset when manually restarting the animation
-		    (currentAnimationTime === 0 && this.lastAnimationTime > 0.5))) {
-		    
-		    console.log("Animation loop/restart detected - resetting distance tracking");
-		    this.resetDistanceTracking();
-		    return;
+			((currentAnimationTime < this.lastAnimationTime && 
+			(this.lastAnimationTime - currentAnimationTime) > 0.5) ||
+			(currentAnimationTime === 0 && this.lastAnimationTime > 0.5))) {
+			console.log("Animation loop/restart detected - resetting distance tracking");
+			this.resetDistanceTracking();
+			return;
 		}
-		
+
 		// Only track distance if animation is actually playing
 		if (!isPlaying) {
-		    // Still store current time for comparison
-		    this.lastAnimationTime = currentAnimationTime;
-		    return;
+			this.lastAnimationTime = currentAnimationTime;
+			return;
 		}
-		
-		// Store current time for next comparison
+
 		this.lastAnimationTime = currentAnimationTime;
-		
-		// Get current time for speed calculation
-		const currentTime = performance.now() / 1000;
-		const deltaTime = currentTime - this.lastTrackedTime;
-		
+
 		// Get current position
 		const worldPos = new THREE.Vector3();
 		this.sphereMeshes.children[jointIndex].getWorldPosition(worldPos);
 		this.descriptorsGroup.parent.worldToLocal(worldPos);
-		
-		// Get ground level
-		const groundY = this.findGroundLevel();
-		
-		// Set the Y component to ground level (tracking projection on floor)
-		worldPos.y = groundY;
-		
+
 		// Calculate distance and speed
+		const currentTime = performance.now() / 1000;
+		const deltaTime = currentTime - this.lastTrackedTime;
+
 		if (this.lastTrackedPosition && deltaTime > 0) {
-			// Create temporary vectors with Y set to 0 to measure XZ distance only
 			const lastPos2D = new THREE.Vector3(this.lastTrackedPosition.x, 0, this.lastTrackedPosition.z);
 			const currPos2D = new THREE.Vector3(worldPos.x, 0, worldPos.z);
-			
-			// Calculate distance between points
+
 			const segmentDistance = lastPos2D.distanceTo(currPos2D);
 			const speed = segmentDistance / deltaTime;
-			
-			// Only add to path if moved a significant distance (to avoid tiny segments)
-			// Reduced threshold for more accurate tracking
+
 			if (segmentDistance > 0.1) {
 				this.pathPoints.push(worldPos.clone());
 				this.pathSpeeds.push(speed);
@@ -2547,39 +2517,33 @@ class SkeletonViewer {
 				this.totalDistance += segmentDistance;
 				this.lastTrackedPosition = worldPos.clone();
 				this.lastTrackedTime = currentTime;
-				
-				// Update visualization
+
 				this.createPathVisualization();
 				this.updateDistanceInfoPanel(speed);
 			}
 		} else if (!this.lastTrackedPosition) {
-			// Initialize tracking position if this is the first update
 			this.lastTrackedPosition = worldPos.clone();
 			this.lastTrackedTime = currentTime;
 		}
 	}
-	
+
 	// Update the information panel with new distance and speed data
 	updateDistanceInfoPanel(currentSpeed) {
-		// Update the HTML elements
-		if (this.distanceValueElement && this.speedValueElement) {
-			// Update distance value
-			this.distanceValueElement.textContent = `Total: ${this.totalDistance.toFixed(2)} units`;
-			
-			// Update speed with color coding based on speed
-			this.speedValueElement.textContent = `Speed: ${currentSpeed.toFixed(2)} units/s`;
-			
-			// Apply color to speed text based on value
-			let speedColor = 'rgb(100, 200, 255)'; // Default blue for slow
-			if (currentSpeed >= 30) {
-				speedColor = 'rgb(255, 100, 100)'; // Red for fast
-			} else if (currentSpeed >= 10) {
-				speedColor = 'rgb(100, 255, 100)'; // Green for medium
+		if (this.distanceValueElement) {
+			this.distanceValueElement.textContent = `Total: ${this.totalDistance.toFixed(2)} cm`;
+		}
+		if (this.speedValueElement) {
+			this.speedValueElement.textContent = `Speed: ${currentSpeed.toFixed(2)} cm/s`;
+		}
+		if (this.distanceDisplay) {
+			const currentJointName = selectedJoint();
+			const titleElement = this.distanceDisplay.querySelector('.distance-tracker-header');
+			if (titleElement) {
+				titleElement.textContent = `Distance: ${currentJointName}`;
 			}
-			this.speedValueElement.style.color = speedColor;
 		}
 	}
-	
+
 	// Reset distance tracking
 	resetDistanceTracking() {
 		this.pathPoints = [];
@@ -2589,11 +2553,12 @@ class SkeletonViewer {
 		this.lastTrackedPosition = null;
 		this.lastTrackedTime = performance.now() / 1000;
 		this.nextMarkerAt = this.markerDistance;
-		
+
 		if (this.distanceTrackingActive && this.distanceTracker) {
 			this.initDistanceTracking();
 		}
 	}
+
 
 	computeAngleBetween(jointA, jointB, jointC) {
 		const A = this.getJointWorldPosition(jointA)
@@ -3070,101 +3035,119 @@ class SkeletonViewer {
 		return 1;
 	}
 
+	//update function
 	update(delta) {
-		// Update mixer (if there is an animation running)
-		if (this.mixer) {
-			this.mixer.update(delta);
-		}
+    // Update mixer (if there is an animation running)
+    if (this.mixer) {
+        this.mixer.update(delta);
+    }
 
-		try {
-			this.updateSpherePositions();
-			this.updateLinePositions();
-	
-			const scores = this.getRULAScore(); // <-- Your own RULA score computation
-			
-			const rula = this.getRULAScore();           // contains raw component scores
-			const final = this.getEndRULA();
+    try {
+        this.updateSpherePositions();
+        this.updateLinePositions();
 
-			setRulaScores(rula);                        // Update Solid state
-			setRulaFinalScore(final.finalScore);
+        // RULA Score Calculation and Visualization
+        const rula = this.getRULAScore();           // contains raw component scores
+        const final = this.getEndRULA();
 
-			// Reset colors to default
-			this.sphereMeshes.children.forEach(mesh => {
-				mesh.material.color.set(0x145e9f);
-			});
+        setRulaScores(rula);                        // Update Solid state
+        setRulaFinalScore(final.finalScore);
 
-			// Helper: Get color from score
-			const getColor = score => rulaColorMap[score] || 0x145e9f;
+        // Reset colors to default
+        this.sphereMeshes.children.forEach(mesh => {
+            mesh.material.color.set(0x145e9f);
+        });
 
-			// Neck
-			if (rula.neck) {
-				const color = getColor(rula.neck.score);
-				this.colorJoint("Neck", color);
-				this.colorJoint("Head", color);
-				this.colorBone("Neck", "Head", color);
-			}
+        // Helper: Get color from score
+        const getColor = score => rulaColorMap[score] || 0x145e9f;
 
-			// Trunk
-			if (rula.trunk) {
-				const color = getColor(rula.trunk.score);
-				this.colorJoint("Hips", color);
-				this.colorJoint("Spine", color);
-				this.colorBone("Hips", "Spine", color);
-			}
+        // Neck
+        if (rula.neck) {
+            const color = getColor(rula.neck.score);
+            this.colorJoint("Neck", color);
+            this.colorJoint("Head", color);
+            this.colorBone("Neck", "Head", color);
+        }
 
-			// Upper Arm Left
-			if (rula.upperArmLeft) {
-				const color = getColor(rula.upperArmLeft.score);
-				this.colorJoint("LeftShoulder", color);
-				this.colorJoint("LeftForeArm", color);
-				this.colorBone("LeftShoulder", "LeftForeArm", color);
-			}
+        // Trunk
+        if (rula.trunk) {
+            const color = getColor(rula.trunk.score);
+            this.colorJoint("Hips", color);
+            this.colorJoint("Spine", color);
+            this.colorBone("Hips", "Spine", color);
+        }
 
-			// Upper Arm Right
-			if (rula.upperArmRight) {
-				const color = getColor(rula.upperArmRight.score);
-				this.colorJoint("RightShoulder", color);
-				this.colorJoint("RightForeArm", color);
-				this.colorBone("RightShoulder", "RightForeArm", color);
-			}
+        // Upper Arm Left
+        if (rula.upperArmLeft) {
+            const color = getColor(rula.upperArmLeft.score);
+            this.colorJoint("LeftShoulder", color);
+            this.colorJoint("LeftForeArm", color);
+            this.colorBone("LeftShoulder", "LeftForeArm", color);
+        }
 
-			if (rula.lowerArmLeft) {
-				const color = getColor(rula.lowerArmLeft.score);
-				this.colorJoint("LeftForeArm", color);
-				this.colorJoint("LeftHand", color);
-				this.colorBone("LeftForeArm", "LeftHand", color);
-			}
+        // Upper Arm Right
+        if (rula.upperArmRight) {
+            const color = getColor(rula.upperArmRight.score);
+            this.colorJoint("RightShoulder", color);
+            this.colorJoint("RightForeArm", color);
+            this.colorBone("RightShoulder", "RightForeArm", color);
+        }
 
-			if (rula.lowerArmRight) {
-				const color = getColor(rula.lowerArmRight.score);
-				this.colorJoint("RightForeArm", color);
-				this.colorJoint("RightHand", color);
-				this.colorBone("RightForeArm", "RightHand", color);
-			}
+        if (rula.lowerArmLeft) {
+            const color = getColor(rula.lowerArmLeft.score);
+            this.colorJoint("LeftForeArm", color);
+            this.colorJoint("LeftHand", color);
+            this.colorBone("LeftForeArm", "LeftHand", color);
+        }
 
-			// Legs
-			if (rula.leg) {
-				const color = getColor(rula.leg.score);
-				this.colorJoint("LeftUpLeg", color);
-				this.colorJoint("LeftLeg", color);
-				this.colorBone("LeftUpLeg", "LeftLeg", color);
+        if (rula.lowerArmRight) {
+            const color = getColor(rula.lowerArmRight.score);
+            this.colorJoint("RightForeArm", color);
+            this.colorJoint("RightHand", color);
+            this.colorBone("RightForeArm", "RightHand", color);
+        }
 
-				this.colorJoint("RightUpLeg", color);
-				this.colorJoint("RightLeg", color);
-				this.colorBone("RightUpLeg", "RightLeg", color);
+        // Legs
+        if (rula.leg) {
+            const color = getColor(rula.leg.score);
+            this.colorJoint("LeftUpLeg", color);
+            this.colorJoint("LeftLeg", color);
+            this.colorBone("LeftUpLeg", "LeftLeg", color);
 
-				this.colorJoint("LeftFoot", color);
-				this.colorJoint("RightFoot", color);
-				this.colorBone("LeftLeg", "LeftFoot", color);
-				this.colorBone("RightLeg", "RightFoot", color);
-			}
+            this.colorJoint("RightUpLeg", color);
+            this.colorJoint("RightLeg", color);
+            this.colorBone("RightUpLeg", "RightLeg", color);
 
-			// ... rest of existing update method ...
-		} catch (error) {
-			console.error("Failed to update skeleton:", error);
-		}
-	}
+            this.colorJoint("LeftFoot", color);
+            this.colorJoint("RightFoot", color);
+            this.colorBone("LeftLeg", "LeftFoot", color);
+            this.colorBone("RightLeg", "RightFoot", color);
+        }
 
+        // Only update geometric descriptors when active
+        if (this.activeDescriptor !== 'none') {
+            this.updateGeometricDescriptors();
+            
+            // Update center of mass if it's active
+            if (this.activeDescriptor === 'com') {
+                this.updateCenterOfMass();
+            }
+            
+            // Update balance visualization if it's active
+            if (this.activeDescriptor === 'balance') {
+                this.updateBalance();
+            }
+            
+            // Update distance tracking if it's active
+            if (this.activeDescriptor === 'distance' && this.distanceTrackingActive) {
+                this.updateDistanceTracking();
+            }
+        }
+
+    } catch (error) {
+        console.error("Failed to update skeleton:", error);
+    }
+}
 	// Helper method to get world position of a joint by name
 	getJointWorldPosition(jointName) {
 		const bone = this.bones[jointName];
@@ -3173,6 +3156,181 @@ class SkeletonViewer {
 		const worldPos = new THREE.Vector3();
 		bone.getWorldPosition(worldPos);
 		return worldPos;
+	}
+		// Method to set and calculate active effort descriptor
+	setEffortDescriptor(value) {
+		console.log("Setting effort descriptor to:", value);
+		this.activeEffortDescriptor = value;
+		
+		if (value === 'weight') {
+			// Immediately calculate the Weight Effort metric
+			setTimeout(() => {
+				console.log("Initiating Weight Effort calculation");
+				this.calculateWeightEffort();
+			}, 100); // Short timeout to give the UI time to update
+		} else {
+			// Reset any active effort visualizations when none is selected
+			this.clearEffortVisualization();
+		}
+	}
+	
+	// Method to clear active effort visualizations
+	clearEffortVisualization() {
+		// Remove any visualization elements specific to effort descriptors
+		// This will be implemented as needed when visualizations are added
+	}
+		// Method to calculate Weight Effort based on kinetic energy
+	calculateWeightEffort() {
+		console.log("Calculating Weight Effort metric");
+		
+		if (!this.animationClip || !this.mixer || !this.globalResult) {
+			console.error("Cannot calculate Weight Effort: animation data is missing");
+			return [];
+		}
+		
+		// Get joints to calculate weight effort for (select important ones)
+		const joints = [
+			"Hips", "Spine", "Head", 
+			"LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
+			"RightShoulder", "RightArm", "RightForeArm", "RightHand",
+			"LeftUpLeg", "LeftLeg", "LeftFoot",
+			"RightUpLeg", "RightLeg", "RightFoot"
+		];
+		
+		// Get the available joints from our skeleton
+		const availableJoints = [];
+		for (const jointName of joints) {
+			if (this.jointIndex[jointName] !== undefined) {
+				availableJoints.push(jointName);
+			}
+		}
+		
+		if (availableJoints.length === 0) {
+			console.error("No valid joints found for Weight Effort calculation");
+			return [];
+		}
+		
+		// Assign joint weights (lambda_k) based on body mass distribution
+		const jointWeights = {
+			"Hips": 0.15,        // Central body mass
+			"Spine": 0.13,       // Upper torso
+			"Head": 0.08,        // Head weight
+			"LeftShoulder": 0.03, // Shoulder 
+			"LeftArm": 0.03,      // Upper arm
+			"LeftForeArm": 0.02,  // Forearm
+			"LeftHand": 0.01,     // Hand
+			"RightShoulder": 0.03, // Shoulder
+			"RightArm": 0.03,     // Upper arm
+			"RightForeArm": 0.02,  // Forearm  
+			"RightHand": 0.01,     // Hand
+			"LeftUpLeg": 0.12,    // Thigh
+			"LeftLeg": 0.08,      // Lower leg
+			"LeftFoot": 0.02,     // Foot
+			"RightUpLeg": 0.12,   // Thigh
+			"RightLeg": 0.08,     // Lower leg
+			"RightFoot": 0.02     // Foot
+		};
+		
+		// Save original mixer time and timeScale to restore later
+		const originalTime = this.mixer.time;
+		const originalTimeScale = this.mixer.timeScale;
+		
+		// Force the mixer to be active for our calculations
+		this.mixer.timeScale = 1;
+		
+		// Frame time in seconds (use a higher precision for better results)
+		const frameTime = 1/90;
+		let weightEffortValues = [];
+		let maxWeightEffort = 0;
+		
+		// Store positions for each joint at each frame for better performance
+		const allPositions = {};
+		for (const jointName of availableJoints) {
+			allPositions[jointName] = [];
+		}
+		
+		// Step 1: Collect all positions first
+		const totalFrames = Math.floor(this.animationClip.duration * 90);
+		console.log(`Calculating positions for ${totalFrames} frames`);
+		
+		for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+			const time = frameIndex * frameTime;
+			this.mixer.setTime(time);
+			this.mixer.update(0); // Update the skeleton
+			
+			// Record position for each joint
+			for (const jointName of availableJoints) {
+				const boneIndex = this.jointIndex[jointName];
+				if (boneIndex === undefined) continue;
+				
+				const bone = this.globalResult.skeleton.bones[boneIndex];
+				if (!bone) continue;
+				
+				const position = new THREE.Vector3();
+				bone.getWorldPosition(position);
+				allPositions[jointName].push(position.clone());
+			}
+		}
+		
+		// Step 2: Calculate kinetic energy for each frame
+		for (let frameIndex = 1; frameIndex < totalFrames; frameIndex++) {
+			let totalKineticEnergy = 0;
+			
+			for (const jointName of availableJoints) {
+				// Skip if we don't have enough position data
+				if (allPositions[jointName].length <= frameIndex) continue;
+				
+				const currentPos = allPositions[jointName][frameIndex];
+				const prevPos = allPositions[jointName][frameIndex-1];
+				
+				// Calculate velocity vector
+				const vx = (currentPos.x - prevPos.x) / frameTime;
+				const vy = (currentPos.y - prevPos.y) / frameTime;
+				const vz = (currentPos.z - prevPos.z) / frameTime;
+				
+				// Calculate velocity magnitude squared (v²)
+				const velocitySquared = vx*vx + vy*vy + vz*vz;
+				
+				// Add weighted kinetic energy contribution: λk * v²
+				const weight = jointWeights[jointName] || 0.01; 
+				const kineticEnergy = weight * velocitySquared;
+				totalKineticEnergy += kineticEnergy;
+			}
+			
+			// Apply a scaling factor to make the values more readable
+			const scaledEnergy = totalKineticEnergy * 0.001;
+			
+			// Store the total kinetic energy for this frame
+			weightEffortValues.push(scaledEnergy);
+			
+			// Track maximum value for normalization
+			if (scaledEnergy > maxWeightEffort) {
+				maxWeightEffort = scaledEnergy;
+			}
+		}
+		
+		// Ensure we have values for frame 0 (copy from frame 1 for continuity)
+		if (weightEffortValues.length > 0) {
+			weightEffortValues.unshift(weightEffortValues[0]);
+		} else {
+			// If no values were calculated, add a placeholder
+			weightEffortValues = [0];
+			maxWeightEffort = 1;
+		}
+		
+		// Restore mixer to original state
+		this.mixer.timeScale = originalTimeScale;
+		this.mixer.setTime(originalTime);
+		
+		console.log(`Weight Effort calculation complete. ${weightEffortValues.length} values. Max: ${maxWeightEffort}`);
+		
+		// Update store with weight effort data
+		import("./store.js").then(({ setWeightEffortData, setWeightEffortMax }) => {
+			setWeightEffortData(weightEffortValues);
+			setWeightEffortMax(maxWeightEffort);
+		});
+		
+		return weightEffortValues;
 	}
 }
 

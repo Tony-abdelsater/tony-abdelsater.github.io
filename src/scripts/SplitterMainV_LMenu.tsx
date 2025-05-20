@@ -67,9 +67,7 @@ const SplitterMainV_LMenu = () => {
 				<div
 					id="threelogs"
 					style={{ overflow: "auto", height: "100%" }}
-				>
-					<CollapsibleLoadData />
-					<CollapsibleVisControls />
+				>					<CollapsibleLoadData />					<CollapsibleVisControls />
 					<CollapsibleMotionAnalysis />
 					<CollapsibleAnalysis />
 					<button

@@ -99,6 +99,10 @@ const [motionMetric, setMotionMetric] = createSignal('speed')
 const [accelerationDataX, setAccelerationDataX] = createSignal([])
 const [accelerationDataY, setAccelerationDataY] = createSignal([])
 const [accelerationDataZ, setAccelerationDataZ] = createSignal([])
+
+// Weight Effort data signals
+const [weightEffortData, setWeightEffortData] = createSignal([])
+const [weightEffortMax, setWeightEffortMax] = createSignal(0)
 const [accelerationDataNorm, setAccelerationDataNorm] = createSignal([])
 
 // Add jerk data signals
@@ -126,6 +130,7 @@ export const [rulaFinalScore, setRulaFinalScore] = createSignal(null);
 const [activeGeometricDescriptor, setActiveGeometricDescriptor] = createSignal('none')
 const [activeSpaceDescriptor, setActiveSpaceDescriptor] = createSignal('none')
 const [activeTemporalDescriptor, setActiveTemporalDescriptor] = createSignal('none')
+const [activeEffortDescriptor, setActiveEffortDescriptor] = createSignal('none')
 
 // For the metric information panel
 const [showMetricInfo, setShowMetricInfo] = createSignal(false)
@@ -313,6 +318,13 @@ export {
 	// Temporal descriptor exports
 	activeTemporalDescriptor,
 	setActiveTemporalDescriptor,
+		// Effort descriptor exports
+	activeEffortDescriptor,
+	setActiveEffortDescriptor,
+	weightEffortData,
+	setWeightEffortData,
+	weightEffortMax,
+	setWeightEffortMax,
 	
 	// Metric info panel exports
 	showMetricInfo,

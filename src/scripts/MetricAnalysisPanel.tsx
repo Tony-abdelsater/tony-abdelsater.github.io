@@ -1,13 +1,16 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js"
 import { SpeedPlot } from "./SpeedPlot"
+import { WeightEffortPlot } from "./WeightEffortPlot"
 import { 
     activeGeometricDescriptor, 
     activeSpaceDescriptor, 
     activeTemporalDescriptor,
+    activeEffortDescriptor,
     showSpeedPlot,
     setCurrentMetricInfo,
     setShowMetricInfo,
-    skeletonViewersSig
+    skeletonViewersSig,
+    selectedJoint
 } from "./store"
 
 export function MetricAnalysisPanel() {
@@ -16,6 +19,7 @@ export function MetricAnalysisPanel() {
     const [lastActiveGeometric, setLastActiveGeometric] = createSignal('')
     const [lastActiveSpatial, setLastActiveSpatial] = createSignal('')
     const [lastActiveTemporal, setLastActiveTemporal] = createSignal('')
+    const [lastActiveEffort, setLastActiveEffort] = createSignal('')
     
     // Helper function to update metric information for geometrical metrics
     const updateGeometricalInfo = (value) => {
@@ -124,11 +128,29 @@ export function MetricAnalysisPanel() {
         setShowMetricInfo(true);
     };
     
-    // Update the active panel type based on the selected metrics
+    // Helper function to update metric information for effort metrics
+    const updateEffortInfo = (value) => {
+        if (value === "none") return;
+        
+        if (value === "weight") {
+            setCurrentMetricInfo({
+                title: "Weight Effort",
+                description: "Refers to physical properties of the motion, varying between Strong (powerful, forceful) or Light (gentle, delicate, sensitive).",
+                calculation: "By computing the sum of the kinetic energy of the joints composing the body part: E(t) = Σ λk * vk(t)² and extracting the maximum energy over a time interval.",
+                quality: "Weight effort relates to the force quality of movement, indicating power and intensity.",
+                interpretation: "> High Weight Value: indicates Strong, powerful, forceful movement.\n> Low Weight Value: suggests Light, gentle, delicate, or sensitive movement.",
+                unit: "Energy units (normalized)"
+            });
+        }
+        
+        setShowMetricInfo(true);
+    };
+      // Update the active panel type based on the selected metrics
     createEffect(() => {
         const geometrical = activeGeometricDescriptor()
         const spatial = activeSpaceDescriptor()
         const temporal = activeTemporalDescriptor()
+        const effort = activeEffortDescriptor()
         
         // Check which metric type changed
         if (geometrical !== lastActiveGeometric()) {
@@ -152,13 +174,21 @@ export function MetricAnalysisPanel() {
             }
         }
         
-        // Determine which panel type to show based on priority
+        if (effort !== lastActiveEffort()) {
+            setLastActiveEffort(effort);
+            if (effort !== 'none') {
+                updateEffortInfo(effort);
+            }
+        }
+          // Determine which panel type to show based on priority
         if (temporal !== 'none') {
             setActivePanelType('temporal')
         } else if (spatial !== 'none') {
             setActivePanelType('spatial')
         } else if (geometrical !== 'none') {
             setActivePanelType('geometrical')
+        } else if (effort !== 'none') {
+            setActivePanelType('effort')
         } else {
             setActivePanelType('none')
         }
@@ -184,6 +214,13 @@ export function MetricAnalysisPanel() {
             <Show when={activePanelType() === 'geometrical'}>
                 <div style="padding: 15px; text-align: center; background: #f5f5f5;">
                     <p>Geometrical analysis is displayed on the 3D model view.</p>
+                </div>
+            </Show>            <Show when={activePanelType() === 'effort'}>
+                <div style="padding: 15px; text-align: center; background: #f5f5f5;">
+                    <p>Weight Effort analysis is displayed in a separate panel below.</p>
+                    <p style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Check the panel below the collapsible sections.
+                    </p>
                 </div>
             </Show>
             

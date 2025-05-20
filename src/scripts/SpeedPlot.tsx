@@ -77,21 +77,19 @@ export function SpeedPlot() {
     chart.clear();
 
     let data = [];
-    let yAxisName = "";
-
-    // Select data based on motion metric
+    let yAxisName = "";    // Select data based on motion metric
     switch (metric) {
       case 'speed':
         data = speeds3D;
-        yAxisName = "Speed (units/s)";
+        yAxisName = "Speed (cm/s)";
         break;
       case 'acceleration':
         data = accNorm;
-        yAxisName = "Acceleration (units/s²)";
+        yAxisName = "Acceleration (cm/s²)";
         break;
       case 'jerk':
         data = jerkNorm;
-        yAxisName = "Jerk (units/s³)";
+        yAxisName = "Jerk (cm/s³)";
         break;
     }
 

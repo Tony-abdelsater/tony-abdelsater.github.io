@@ -193,10 +193,9 @@ async function createVectorPLot(dataSeriesUnmod, dataSeriesMod) {
 				interval: 0,
 			},
 			triggerEvent: true,
-		},
-		yAxis: {
+		},		yAxis: {
 			type: "value",
-			name: "position",
+			name: "position (cm)",
 			axisLine: { onZero: false },
 		},
 		series: [
@@ -827,8 +826,7 @@ const createPlot2D = (currentTime, axis = "x") => {
 				right: "15px",
 				width: 30 * scaleX(),
 			},
-		],
-		xAxis: {
+		],		xAxis: {
 			type: "category",
 			data: allPositions.map((_, index) => index),
 			axisLine: {
@@ -837,7 +835,7 @@ const createPlot2D = (currentTime, axis = "x") => {
 		},
 		yAxis: {
 			type: "value",
-			name: name2DPlot(),
+			name: name2DPlot() === "Position" ? name2DPlot() + " (cm)" : name2DPlot() + " (degrees)",
 			min: minPlot2D(),
 			max: maxPlot2D(),
 		},
